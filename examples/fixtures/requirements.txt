@@ -1,0 +1,5 @@
+# Fixture: versi lama ber-CVE yang diketahui, untuk memancing Trivy.
+# Jangan disalin ke proyek sungguhan.
+PyYAML==5.1
+Django==2.2.0
+requests==2.19.1

@@ -1,0 +1,103 @@
+name: Self Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Tiap push memicu 6 job; jangan biarkan run lama menumpuk.
+concurrency:
+  group: self-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: report.mjs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/report.test.mjs
+
+  integration:
+    name: ${{ matrix.reviews }} @ ${{ matrix.fail-on }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Semua review aktif: fixture memicu temuan di beberapa band.
+          - reviews: code,vulnerability,commit-message
+            fail-on: high
+            expect: fail
+          # Hanya code: temuan secret harus hilang dari report.
+          - reviews: code
+            fail-on: high
+            expect: fail
+          # Hanya vulnerability, gate paling longgar: secret palsu = Critical.
+          - reviews: vulnerability
+            fail-on: critical
+            expect: fail
+          # Gate mati: harus lulus, tapi report tetap tergenerate.
+          - reviews: code,vulnerability
+            fail-on: none
+            expect: pass
+          # Salah ketik harus gagal keras, bukan diam-diam dilewati.
+          - reviews: bogus
+            fail-on: high
+            expect: fail
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: review
+        continue-on-error: true
+        uses: ./
+        with:
+          reviews: ${{ matrix.reviews }}
+          fail-on: ${{ matrix.fail-on }}
+
+      - name: Assert
+        env:
+          OUTCOME: ${{ steps.review.outcome }}
+          EXPECTED: ${{ matrix.expect }}
+          REVIEWS: ${{ matrix.reviews }}
+          DIR: ${{ steps.review.outputs.report-dir }}
+        run: |
+          set -euo pipefail
+          if [ "$OUTCOME" = "success" ]; then got=pass; else got=fail; fi
+          if [ "$got" != "$EXPECTED" ]; then
+            echo "::error::'$REVIEWS' harusnya $EXPECTED, ternyata $got"
+            exit 1
+          fi
+
+          # Lego: SARIF hanya boleh ada untuk review yang benar-benar diminta.
+          [ -n "$DIR" ] || exit 0
+          case "$REVIEWS" in
+            *vulnerability*)
+              [ -s "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks.sarif hilang"; exit 1; }
+              [ -s "$DIR/trivy.sarif" ]    || { echo "::error::trivy.sarif hilang"; exit 1; } ;;
+            *)
+              [ ! -f "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks jalan padahal tidak diminta"; exit 1; } ;;
+          esac
+          case "$REVIEWS" in
+            *code*)
+              [ -s "$DIR/semgrep.sarif" ] || { echo "::error::semgrep.sarif hilang"; exit 1; } ;;
+            *)
+              [ ! -f "$DIR/semgrep.sarif" ] || { echo "::error::semgrep jalan padahal tidak diminta"; exit 1; } ;;
+          esac
+
+      # Integration test ini tidak bisa dijalankan di lokal, jadi kalau assert-nya
+      # gagal, SARIF mentahnya harus bisa diunduh untuk diperiksa. Harus setelah
+      # Assert: step review sendiri sudah continue-on-error, jadi sebelum ini
+      # failure() tidak pernah menyala.
+      - name: Simpan SARIF mentah saat gagal
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ strategy.job-index }}
+          path: ${{ steps.review.outputs.report-dir }}
+          if-no-files-found: ignore

@@ -1,0 +1,168 @@
+name: Agnostic Review Pipeline
+description: Code, vulnerability, dan commit message review dengan report bertingkat severity CVSS.
+author: supernurture
+
+inputs:
+  reviews:
+    description: "Review yang aktif, dipisah koma: code, vulnerability, commit-message"
+    required: true
+  fail-on:
+    description: "Severity minimum yang menggagalkan build: critical, high, medium, low, info, none"
+    required: false
+    default: high
+  semgrep-config:
+    description: "Ruleset Semgrep (lihat semgrep.dev/r)"
+    required: false
+    default: p/ci
+  # Versi engine dipin agar hasil bisa direproduksi. Rule-nya tetap segar:
+  # --config p/ci mengambil ruleset dari registry saat run.
+  semgrep-version:
+    description: "Versi Semgrep yang dipasang"
+    required: false
+    default: "1.173.0"
+  gitleaks-version:
+    description: "Versi Gitleaks yang diunduh"
+    required: false
+    default: "8.30.1"
+
+outputs:
+  report-dir:
+    description: "Direktori berisi SARIF mentah dari tiap scanner"
+    value: ${{ steps.parse.outputs.dir }}
+
+runs:
+  using: composite
+  steps:
+    # Nama review divalidasi di depan: salah ketik harus gagal keras, bukan
+    # diam-diam melewatkan sebuah review.
+    - name: Validasi review yang diminta
+      id: parse
+      shell: bash
+      env:
+        REVIEWS: ${{ inputs.reviews }}
+        REPORT_DIR: ${{ runner.temp }}/agnostic-review
+      run: |
+        set -euo pipefail
+        if [ -z "$(echo "$REVIEWS" | tr -d '[:space:],')" ]; then
+          echo "::error::input 'reviews' kosong (pilihan: code, vulnerability, commit-message)"
+          exit 1
+        fi
+        mkdir -p "$REPORT_DIR"
+        expect=""
+        for r in $(echo "$REVIEWS" | tr ',' ' '); do
+          case "$r" in
+            code)
+              echo "run_code=true" >> "$GITHUB_OUTPUT"
+              expect="$expect,semgrep.sarif" ;;
+            vulnerability)
+              echo "run_vuln=true" >> "$GITHUB_OUTPUT"
+              expect="$expect,trivy.sarif,gitleaks.sarif" ;;
+            commit-message)
+              echo "run_commit=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::review tidak dikenal: '$r' (pilihan: code, vulnerability, commit-message)"
+              exit 1 ;;
+          esac
+        done
+        echo "expect=${expect#,}" >> "$GITHUB_OUTPUT"
+        echo "dir=$REPORT_DIR" >> "$GITHUB_OUTPUT"
+        echo "ok=true" >> "$GITHUB_OUTPUT"
+
+    - name: Code review — Semgrep
+      if: steps.parse.outputs.run_code == 'true'
+      shell: bash
+      env:
+        SEMGREP_CONFIG: ${{ inputs.semgrep-config }}
+        SEMGREP_VERSION: ${{ inputs.semgrep-version }}
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        set -uo pipefail
+        pipx install "semgrep==${SEMGREP_VERSION}" >/dev/null
+        # Temuan bukan alasan untuk berhenti — report.mjs yang jadi gate.
+        # Kalau pemasangan gagal, SARIF tidak tertulis dan report menangkapnya
+        # sebagai "scanner tidak menghasilkan laporan".
+        semgrep scan --config "$SEMGREP_CONFIG" --sarif \
+          --output "$REPORT_DIR/semgrep.sarif" --metrics off --quiet . || true
+
+    - name: Setup Trivy
+      if: steps.parse.outputs.run_vuln == 'true'
+      uses: aquasecurity/setup-trivy@v0.3.1
+
+    - name: Vulnerability review — Trivy
+      if: steps.parse.outputs.run_vuln == 'true'
+      shell: bash
+      env:
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        set -uo pipefail
+        trivy fs . --scanners vuln,misconfig --format sarif \
+          --output "$REPORT_DIR/trivy.sarif" --exit-code 0 --quiet || true
+
+    - name: Vulnerability review — Gitleaks
+      if: steps.parse.outputs.run_vuln == 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.gitleaks-version }}
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        set -uo pipefail
+        tmp="$(mktemp -d)"
+        base="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}"
+        tarball="gitleaks_${VERSION}_linux_x64.tar.gz"
+        curl -sSfL -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::gagal mengunduh gitleaks v${VERSION}"; exit 1; }
+        curl -sSfL -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::gagal mengunduh checksum gitleaks"; exit 1; }
+        # Binary dari internet: checksum wajib dicek, dan kegagalannya fatal.
+        # awk mencocokkan nama file persis; grep akan memperlakukan titik pada
+        # nama tarball sebagai wildcard.
+        want="$(awk -v f="$tarball" '$2 == f { print $1 }' "$tmp/checksums.txt")"
+        [ -n "$want" ] || { echo "::error::checksum untuk $tarball tidak ada di manifest"; exit 1; }
+        ( cd "$tmp" && echo "$want  $tarball" | sha256sum -c - ) \
+          || { echo "::error::checksum gitleaks tidak cocok"; exit 1; }
+        tar -xzf "$tmp/$tarball" -C "$tmp" gitleaks
+        # `dir` memindai working tree; report ditulis ke luar repo agar tidak
+        # ikut terpindai di run berikutnya.
+        "$tmp/gitleaks" dir . --report-format sarif \
+          --report-path "$REPORT_DIR/gitleaks.sarif" --exit-code 0 --no-banner || true
+
+    - name: Commit message review — commitlint
+      if: steps.parse.outputs.run_commit == 'true'
+      shell: bash
+      env:
+        FROM: ${{ github.event.pull_request.base.sha }}
+        TO: ${{ github.event.pull_request.head.sha }}
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        set -uo pipefail
+        # Di luar konteks pull_request, periksa commit terakhir saja.
+        from="${FROM:-$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)}"
+        to="${TO:-HEAD}"
+
+        # Glob yang tidak cocok tetap jadi string literal, jadi -e yang menentukan.
+        # `ls a b` tidak bisa dipakai: ia non-zero kalau salah satu argumen hilang,
+        # sehingga config milik pemakai ikut tertimpa --extends.
+        extends="--extends @commitlint/config-conventional"
+        for f in commitlint.config.* .commitlintrc*; do
+          if [ -e "$f" ]; then extends=""; break; fi
+        done
+
+        # npx --yes: tidak menyentuh package.json / node_modules repo pemakai.
+        run_commitlint() {
+          npx --yes --package @commitlint/cli --package @commitlint/config-conventional -- \
+            commitlint "$@"
+        }
+        # Pemasangan gagal harus terlihat sebagai error, bukan menyamar jadi
+        # pelanggaran pesan commit di dalam commit.txt.
+        run_commitlint --version >/dev/null 2>&1 \
+          || { echo "::error::gagal memasang commitlint"; exit 1; }
+        run_commitlint --from "$from" --to "$to" $extends > "$REPORT_DIR/commit.txt" 2>&1 || true
+
+    - name: Report
+      if: ${{ always() && steps.parse.outputs.ok == 'true' }}
+      shell: bash
+      env:
+        FAIL_ON: ${{ inputs.fail-on }}
+        EXPECT: ${{ steps.parse.outputs.expect }}
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" \
+          --fail-on "$FAIL_ON" --expect "$EXPECT"

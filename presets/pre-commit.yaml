@@ -1,0 +1,28 @@
+# Opsional, untuk lane lokal — salin ke .pre-commit-config.yaml di proyekmu,
+# lalu `pre-commit install --install-hooks -t pre-commit -t commit-msg`.
+#
+# Ini BUKAN sumber kebenaran pipeline. Report bertingkat severity dihasilkan di CI oleh
+# action-nya; pre-commit di sini hanya gate cepat pass/fail di mesin developer.
+# Hapus blok yang tidak kamu pakai.
+
+repos:
+  # --- vulnerability review ---
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # --- code review ---
+  - repo: https://github.com/semgrep/pre-commit
+    rev: v1.173.0
+    hooks:
+      - id: semgrep
+        args: ["--config", "p/ci", "--error", "--skip-unknown-extensions"]
+
+  # --- commit message review ---
+  - repo: https://github.com/alessandrojcm/commitlint-pre-commit-hook
+    rev: v9.26.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies: ["@commitlint/config-conventional"]

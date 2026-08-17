@@ -1,0 +1,24 @@
+# Salin ke .github/workflows/review.yml di proyekmu.
+name: Review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # commitlint memeriksa rentang commit PR, jadi butuh riwayat penuh.
+          # Kalau kamu tidak memakai review commit-message, ini boleh dihapus.
+          fetch-depth: 0
+
+      - uses: supernurture/agnostic-pipeline-review@v1
+        with:
+          # Pasang / copot review di baris ini.
+          reviews: code,vulnerability,commit-message
+          fail-on: high
