@@ -1,5 +1,5 @@
-# Fixture: versi lama ber-CVE yang diketahui, untuk memancing Trivy.
-# Jangan disalin ke proyek sungguhan.
+# Fixture: old versions with known CVEs, to bait Trivy.
+# Do not copy these into a real project.
 PyYAML==5.1
 Django==2.2.0
 requests==2.19.1

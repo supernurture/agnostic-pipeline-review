@@ -1,4 +1,4 @@
-# Salin ke .github/workflows/review.yml di proyekmu.
+# Copy this to .github/workflows/review.yml in your project.
 name: Review
 
 on:
@@ -13,12 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # commitlint memeriksa rentang commit PR, jadi butuh riwayat penuh.
-          # Kalau kamu tidak memakai review commit-message, ini boleh dihapus.
+          # commitlint inspects the PR's commit range, so it needs full history.
+          # Safe to drop if you are not using the commit-message review.
           fetch-depth: 0
 
       - uses: supernurture/agnostic-pipeline-review@v1
         with:
-          # Pasang / copot review di baris ini.
+          # Plug in / unplug reviews on this line.
           reviews: code,vulnerability,commit-message
           fail-on: high

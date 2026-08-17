@@ -1,4 +1,4 @@
-"""Fixture: kredensial palsu untuk memancing Gitleaks. Bukan kunci asli."""
+"""Fixture: fake credentials to bait Gitleaks. Not a real key."""
 
 AWS_ACCESS_KEY_ID = "AKIAQYLPMN5HNXWTQ7ZR"
 AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI2K7MDENGbPxRfiCYEXAMPLEKEY9z"

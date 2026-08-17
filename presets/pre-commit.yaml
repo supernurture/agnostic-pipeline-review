@@ -1,9 +1,9 @@
-# Opsional, untuk lane lokal — salin ke .pre-commit-config.yaml di proyekmu,
-# lalu `pre-commit install --install-hooks -t pre-commit -t commit-msg`.
+# Optional, for the local lane — copy this to .pre-commit-config.yaml in your
+# project, then run `pre-commit install --install-hooks -t pre-commit -t commit-msg`.
 #
-# Ini BUKAN sumber kebenaran pipeline. Report bertingkat severity dihasilkan di CI oleh
-# action-nya; pre-commit di sini hanya gate cepat pass/fail di mesin developer.
-# Hapus blok yang tidak kamu pakai.
+# This is NOT the pipeline's source of truth. The severity-ranked report is
+# produced in CI by the action; pre-commit here is only a fast pass/fail gate on
+# a developer machine. Delete any block you do not use.
 
 repos:
   # --- vulnerability review ---

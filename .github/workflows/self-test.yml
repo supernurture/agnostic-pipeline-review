@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 
-# Tiap push memicu 6 job; jangan biarkan run lama menumpuk.
+# Every push fires 6 jobs; do not let stale runs pile up.
 concurrency:
   group: self-test-${{ github.ref }}
   cancel-in-progress: true
@@ -28,23 +28,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Semua review aktif: fixture memicu temuan di beberapa band.
+          # Every review enabled: the fixtures trigger findings across bands.
           - reviews: code,vulnerability,commit-message
             fail-on: high
             expect: fail
-          # Hanya code: temuan secret harus hilang dari report.
+          # code only: the secret finding must disappear from the report.
+          # The gate is `info`, not `high`: the band Semgrep assigns to the
+          # fixtures is decided by its registry rules, not by this repo, so
+          # pinning it to High would make the test depend on something we do
+          # not control. All we want to prove is "the gate catches findings".
           - reviews: code
-            fail-on: high
+            fail-on: info
             expect: fail
-          # Hanya vulnerability, gate paling longgar: secret palsu = Critical.
+          # vulnerability only, strictest gate: the fake secret is Critical.
           - reviews: vulnerability
             fail-on: critical
             expect: fail
-          # Gate mati: harus lulus, tapi report tetap tergenerate.
+          # Gate off: must pass, but the report is still produced.
           - reviews: code,vulnerability
             fail-on: none
             expect: pass
-          # Salah ketik harus gagal keras, bukan diam-diam dilewati.
+          # A typo must fail loudly rather than be silently skipped.
           - reviews: bogus
             fail-on: high
             expect: fail
@@ -65,35 +69,67 @@ jobs:
           OUTCOME: ${{ steps.review.outcome }}
           EXPECTED: ${{ matrix.expect }}
           REVIEWS: ${{ matrix.reviews }}
+          FAIL_ON: ${{ matrix.fail-on }}
           DIR: ${{ steps.review.outputs.report-dir }}
         run: |
           set -euo pipefail
+
+          # Number of results inside a SARIF file.
+          results() {
+            node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+              console.log((d.runs||[]).reduce((a,r)=>a+(r.results||[]).length,0));' "$1"
+          }
+          # A fixture that stops triggering a scanner must be diagnosed as
+          # exactly that, not masquerade as "the gate is broken". Hence the
+          # content checks run before the pass/fail comparison.
+          expect_findings() {
+            [ -s "$1" ] || { echo "::error::$(basename "$1") hilang atau kosong"; exit 1; }
+            n="$(results "$1")"
+            echo "$(basename "$1"): $n result"
+            [ "$n" -gt 0 ] || { echo "::error::fixture tidak lagi memicu $(basename "$1" .sarif)"; exit 1; }
+          }
+
+          # Lego: a SARIF file may only exist for a review that was requested.
+          if [ -n "$DIR" ]; then
+            case "$REVIEWS" in
+              *vulnerability*)
+                expect_findings "$DIR/gitleaks.sarif"
+                # Trivy is deliberately checked for presence only: fetching its
+                # CVE database depends on the network/registry, so demanding
+                # findings here would make the test flaky for reasons outside
+                # this repo.
+                [ -s "$DIR/trivy.sarif" ] || { echo "::error::trivy.sarif hilang"; exit 1; } ;;
+              *)
+                [ ! -f "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks jalan padahal tidak diminta"; exit 1; } ;;
+            esac
+            case "$REVIEWS" in
+              *code*)
+                expect_findings "$DIR/semgrep.sarif" ;;
+              *)
+                [ ! -f "$DIR/semgrep.sarif" ] || { echo "::error::semgrep jalan padahal tidak diminta"; exit 1; } ;;
+            esac
+            case "$REVIEWS" in
+              *commit-message*)
+                # commit.txt is always written, and is empty when every message
+                # passes. So presence is what we assert — without this check
+                # commitlint could die silently while the matrix row stays green
+                # on another scanner's findings.
+                [ -f "$DIR/commit.txt" ] || { echo "::error::commit.txt hilang, commitlint tidak jalan"; exit 1; } ;;
+              *)
+                [ ! -f "$DIR/commit.txt" ] || { echo "::error::commitlint jalan padahal tidak diminta"; exit 1; } ;;
+            esac
+          fi
+
           if [ "$OUTCOME" = "success" ]; then got=pass; else got=fail; fi
           if [ "$got" != "$EXPECTED" ]; then
-            echo "::error::'$REVIEWS' harusnya $EXPECTED, ternyata $got"
+            echo "::error::'$REVIEWS' @ fail-on=$FAIL_ON harusnya $EXPECTED, ternyata $got"
             exit 1
           fi
 
-          # Lego: SARIF hanya boleh ada untuk review yang benar-benar diminta.
-          [ -n "$DIR" ] || exit 0
-          case "$REVIEWS" in
-            *vulnerability*)
-              [ -s "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks.sarif hilang"; exit 1; }
-              [ -s "$DIR/trivy.sarif" ]    || { echo "::error::trivy.sarif hilang"; exit 1; } ;;
-            *)
-              [ ! -f "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks jalan padahal tidak diminta"; exit 1; } ;;
-          esac
-          case "$REVIEWS" in
-            *code*)
-              [ -s "$DIR/semgrep.sarif" ] || { echo "::error::semgrep.sarif hilang"; exit 1; } ;;
-            *)
-              [ ! -f "$DIR/semgrep.sarif" ] || { echo "::error::semgrep jalan padahal tidak diminta"; exit 1; } ;;
-          esac
-
-      # Integration test ini tidak bisa dijalankan di lokal, jadi kalau assert-nya
-      # gagal, SARIF mentahnya harus bisa diunduh untuk diperiksa. Harus setelah
-      # Assert: step review sendiri sudah continue-on-error, jadi sebelum ini
-      # failure() tidak pernah menyala.
+      # This integration test cannot be run locally, so when an assert fails the
+      # raw SARIF must be downloadable for inspection. It has to come after
+      # Assert: the review step is already continue-on-error, so before this
+      # point failure() never fires.
       - name: Simpan SARIF mentah saat gagal
         if: failure()
         uses: actions/upload-artifact@v4

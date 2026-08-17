@@ -1,11 +1,11 @@
 version: 2
 updates:
-  # Pin action pihak ketiga di action.yml & workflow tidak boleh basi —
-  # ini pipeline keamanan, versi scanner-nya ikut menentukan mutunya.
+  # Third-party action pins in action.yml and the workflows must not go stale —
+  # this is a security pipeline, and the scanner versions shape its quality.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-# Catatan: input `semgrep-version` & `gitleaks-version` di action.yml tidak
-# tersentuh Dependabot — keduanya versi biner yang diunduh sendiri, jadi
-# naikkan manual. `rev:` di presets/pre-commit.yaml juga manual.
+# Note: the `semgrep-version` and `gitleaks-version` inputs in action.yml are
+# out of Dependabot's reach — both are self-downloaded binary versions, so bump
+# them by hand. The `rev:` pins in presets/pre-commit.yaml are manual too.

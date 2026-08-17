@@ -69,6 +69,27 @@ Scanner yang tidak memberi skor dipetakan lewat tabel fallback di
 [`scripts/report.mjs`](scripts/report.mjs): temuan Gitleaks dianggap **Critical**
 (kredensial hidup yang bocor bersifat kritis), Semgrep memakai level SARIF-nya.
 
+### Catatan penting soal `code` + `fail-on: high`
+
+Sebagian besar rule keamanan Semgrep diberi severity `WARNING`, yang di SARIF jadi
+`warning` dan di sini jadi **Medium**. Konsekuensinya: dengan `fail-on: high`
+(default), **`reviews: code` sendirian sering tidak memblokir apa pun** — ia
+melapor tanpa nge-gate.
+
+Terlihat langsung di CI repo ini: dengan `reviews: code` dan `fail-on: high`,
+pipeline **lolos** walau `examples/fixtures/` berisi SQL injection, `shell=True`,
+dan `eval()` — tidak satu pun dinilai High.
+
+Pilih sesuai seleramu:
+
+- **Biarkan `high`** kalau code review memang dimaksudkan sebagai masukan, dan
+  yang boleh memblokir merge cuma temuan keamanan berat (secret, CVE).
+- **Pakai `fail-on: medium`** kalau kamu mau temuan Semgrep ikut nge-gate.
+
+Default sengaja dibiarkan `high` karena band-nya mengikuti penilaian severity
+milik Semgrep sendiri — menaikkannya berarti mengarang severity, dan itu
+melanggar prinsip "ikuti standar yang sudah ada" yang jadi dasar repo ini.
+
 ## Report
 
 Ditulis ke **Job Summary** GitHub, jadi langsung terbaca di halaman workflow run

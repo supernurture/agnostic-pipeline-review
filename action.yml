@@ -14,8 +14,9 @@ inputs:
     description: "Ruleset Semgrep (lihat semgrep.dev/r)"
     required: false
     default: p/ci
-  # Versi engine dipin agar hasil bisa direproduksi. Rule-nya tetap segar:
-  # --config p/ci mengambil ruleset dari registry saat run.
+  # The engine version is pinned for reproducible results. The rules stay
+  # fresh regardless: --config p/ci pulls the ruleset from the registry at run
+  # time.
   semgrep-version:
     description: "Versi Semgrep yang dipasang"
     required: false
@@ -33,8 +34,8 @@ outputs:
 runs:
   using: composite
   steps:
-    # Nama review divalidasi di depan: salah ketik harus gagal keras, bukan
-    # diam-diam melewatkan sebuah review.
+    # Review names are validated up front: a typo must fail loudly rather than
+    # silently skip a review.
     - name: Validasi review yang diminta
       id: parse
       shell: bash
@@ -78,9 +79,9 @@ runs:
       run: |
         set -uo pipefail
         pipx install "semgrep==${SEMGREP_VERSION}" >/dev/null
-        # Temuan bukan alasan untuk berhenti — report.mjs yang jadi gate.
-        # Kalau pemasangan gagal, SARIF tidak tertulis dan report menangkapnya
-        # sebagai "scanner tidak menghasilkan laporan".
+        # Findings are not a reason to stop — report.mjs is the gate.
+        # If the install failed, no SARIF is written and the report catches it
+        # as "scanner produced no report".
         semgrep scan --config "$SEMGREP_CONFIG" --sarif \
           --output "$REPORT_DIR/semgrep.sarif" --metrics off --quiet . || true
 
@@ -111,16 +112,16 @@ runs:
         tarball="gitleaks_${VERSION}_linux_x64.tar.gz"
         curl -sSfL -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::gagal mengunduh gitleaks v${VERSION}"; exit 1; }
         curl -sSfL -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::gagal mengunduh checksum gitleaks"; exit 1; }
-        # Binary dari internet: checksum wajib dicek, dan kegagalannya fatal.
-        # awk mencocokkan nama file persis; grep akan memperlakukan titik pada
-        # nama tarball sebagai wildcard.
+        # A binary from the internet: the checksum must be verified, and a
+        # mismatch is fatal. awk matches the filename exactly; grep would treat
+        # the dots in the tarball name as wildcards.
         want="$(awk -v f="$tarball" '$2 == f { print $1 }' "$tmp/checksums.txt")"
         [ -n "$want" ] || { echo "::error::checksum untuk $tarball tidak ada di manifest"; exit 1; }
         ( cd "$tmp" && echo "$want  $tarball" | sha256sum -c - ) \
           || { echo "::error::checksum gitleaks tidak cocok"; exit 1; }
         tar -xzf "$tmp/$tarball" -C "$tmp" gitleaks
-        # `dir` memindai working tree; report ditulis ke luar repo agar tidak
-        # ikut terpindai di run berikutnya.
+        # `dir` scans the working tree; the report is written outside the repo
+        # so it does not get scanned itself on a later run.
         "$tmp/gitleaks" dir . --report-format sarif \
           --report-path "$REPORT_DIR/gitleaks.sarif" --exit-code 0 --no-banner || true
 
@@ -133,25 +134,25 @@ runs:
         REPORT_DIR: ${{ steps.parse.outputs.dir }}
       run: |
         set -uo pipefail
-        # Di luar konteks pull_request, periksa commit terakhir saja.
+        # Outside a pull_request context, check only the latest commit.
         from="${FROM:-$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)}"
         to="${TO:-HEAD}"
 
-        # Glob yang tidak cocok tetap jadi string literal, jadi -e yang menentukan.
-        # `ls a b` tidak bisa dipakai: ia non-zero kalau salah satu argumen hilang,
-        # sehingga config milik pemakai ikut tertimpa --extends.
+        # An unmatched glob stays a literal string, so -e is what decides.
+        # `ls a b` cannot be used: it returns non-zero when either argument is
+        # missing, which would override the user's own config with --extends.
         extends="--extends @commitlint/config-conventional"
         for f in commitlint.config.* .commitlintrc*; do
           if [ -e "$f" ]; then extends=""; break; fi
         done
 
-        # npx --yes: tidak menyentuh package.json / node_modules repo pemakai.
+        # npx --yes: never touches the consumer's package.json / node_modules.
         run_commitlint() {
           npx --yes --package @commitlint/cli --package @commitlint/config-conventional -- \
             commitlint "$@"
         }
-        # Pemasangan gagal harus terlihat sebagai error, bukan menyamar jadi
-        # pelanggaran pesan commit di dalam commit.txt.
+        # An install failure must surface as an error rather than masquerade as
+        # a commit message violation inside commit.txt.
         run_commitlint --version >/dev/null 2>&1 \
           || { echo "::error::gagal memasang commitlint"; exit 1; }
         run_commitlint --from "$from" --to "$to" $extends > "$REPORT_DIR/commit.txt" 2>&1 || true
