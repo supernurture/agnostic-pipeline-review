@@ -18,6 +18,10 @@ jobs:
   review:
     # Linux only: the action uses pipx, tar and sha256sum.
     runs-on: ubuntu-latest
+    # A composite action cannot time its own steps out, so the job has to. The
+    # GitHub default is 6 hours, which is not a useful failure mode for a
+    # scanner install that stalled on the network.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:

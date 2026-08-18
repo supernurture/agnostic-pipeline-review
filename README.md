@@ -34,6 +34,10 @@ other file has to change.
 Needs a **Linux runner** (`ubuntu-latest`): the action uses `pipx`, `tar` and
 `sha256sum`, and downloads the Linux build of Gitleaks.
 
+Set `timeout-minutes` on the job. A composite action cannot give its own steps
+a timeout, and every scanner here installs itself over the network — without one
+a stalled download runs to GitHub's 6 hour default. 15 is comfortable.
+
 ### Limiting it to certain branches
 
 GitHub has no "protected branches" filter — `branches:` only takes name
