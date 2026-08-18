@@ -31,6 +31,22 @@ jobs:
 Project A writes `code,vulnerability`. Project B writes `commit-message`. No
 other file has to change.
 
+### Limiting it to certain branches
+
+GitHub has no "protected branches" filter — `branches:` only takes name
+patterns. For `pull_request` it matches the branch being merged *into*:
+
+```yaml
+on:
+  pull_request:
+    branches: [main, "release/**"]
+```
+
+Often the thing you actually want is the opposite: let the review run on every
+PR, and let **Require status checks to pass** in the branch protection rule
+decide where it may block a merge. Running it everywhere is cheap and surfaces
+findings earlier; only the protected branch enforces them.
+
 ## Available reviews
 
 | Name | Engine | Coverage |

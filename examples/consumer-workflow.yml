@@ -3,6 +3,11 @@ name: Review
 
 on:
   pull_request:
+    # For pull_request, `branches` filters the branch being merged *into*, so
+    # this reads as "review whatever is on its way into main". GitHub has no
+    # "protected branches" filter, so the names have to be spelled out.
+    # Drop the `branches` line to review every PR.
+    branches: [main]
 
 permissions:
   contents: read
