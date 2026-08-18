@@ -21,6 +21,60 @@ jobs:
       - uses: actions/checkout@v4
       - run: node scripts/report.test.mjs
 
+  # Kept out of the matrix below: this one is about the copy step in action.yml,
+  # not about the scanners. `reviews: commit-message` runs no SARIF scanner at
+  # all, so the only finding in the report can be the style one.
+  extra-sarif:
+    name: extra-sarif
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: A linter's SARIF, without needing the linter
+        run: |
+          cat > style.sarif <<'JSON'
+          {"runs":[{"tool":{"driver":{"name":"Ruff"}},"results":[{
+            "ruleId":"E501","level":"error","message":{"text":"Line too long"},
+            "locations":[{"physicalLocation":{
+              "artifactLocation":{"uri":"examples/fixtures/sqli.py"},
+              "region":{"startLine":8}}}]}]}]}
+          JSON
+
+      # fail-on: critical with a level: error style finding — if style ever
+      # started gating, or landed on the CVSS scale, this job goes red.
+      - id: review
+        uses: ./
+        with:
+          reviews: commit-message
+          fail-on: critical
+          extra-sarif: style.sarif
+
+      - name: Assert
+        env:
+          DIR: ${{ steps.review.outputs.report-dir }}
+        run: |
+          set -euo pipefail
+          report="$DIR/review-report.md"
+          grep -qF '### Coding Standard (1)' "$report" \
+            || { echo "::error::the style finding never reached the report"; exit 1; }
+          grep -qF '| **Total** | **0** |' "$report" \
+            || { echo "::error::a style finding must stay off the CVSS table"; exit 1; }
+
+      # A path that matches nothing is a broken pipeline, not an empty result.
+      - id: missing
+        continue-on-error: true
+        uses: ./
+        with:
+          reviews: commit-message
+          extra-sarif: no-such-file-*.sarif
+
+      - if: steps.missing.outcome != 'failure'
+        run: |
+          echo "::error::extra-sarif matching no file must fail the run"
+          exit 1
+
   integration:
     name: ${{ matrix.reviews }} @ ${{ matrix.fail-on }}
     runs-on: ubuntu-latest
