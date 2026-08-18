@@ -17,6 +17,8 @@ jobs:
   unit:
     name: unit + shellcheck
     runs-on: ubuntu-latest
+    # Without this a hung job runs for the 6 hour default before anyone notices.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/report.test.mjs
@@ -32,6 +34,7 @@ jobs:
   extra-sarif:
     name: extra-sarif
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,6 +86,8 @@ jobs:
   integration:
     name: ${{ matrix.reviews }} @ ${{ matrix.fail-on }}
     runs-on: ubuntu-latest
+    # Installs and runs three real scanners, so it gets the longest leash.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
