@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import {
-  band, severity, location, collect, gate, counts, missingReports, readChanged, scopeTo,
+  band, severity, location, collect, gate, counts, missingReports, readChanged, scopeTo, STYLE_DIR,
 } from "./report.mjs";
 
 const REPORT = fileURLToPath(new URL("./report.mjs", import.meta.url));
@@ -225,9 +225,9 @@ try {
 
   // --- Coding standard findings: own section, no gate, still scoped ---
   const styled = mkdtempSync(join(tmpdir(), "apr-style-"));
-  mkdirSync(join(styled, "style"));
+  mkdirSync(join(styled, STYLE_DIR));
   writeFileSync(join(styled, "clean.sarif"), JSON.stringify({ runs: [] }));
-  writeFileSync(join(styled, "style", "0-ruff.sarif"), JSON.stringify({
+  writeFileSync(join(styled, STYLE_DIR, "0-ruff.sarif"), JSON.stringify({
     runs: [{
       tool: { driver: { name: "Ruff" } },
       results: [{

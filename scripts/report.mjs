@@ -304,6 +304,8 @@ function main(argv) {
   const all = collect(dir);
   const styleAll = collect(join(dir, STYLE_DIR));
   const problems = [...all.problems, ...styleAll.problems];
+  // Security scanners only: a style linter is not expected to carry
+  // security-severity, so the same warning about it would be pure noise.
   const { notes } = all;
   const changed = readChanged(values.changed);
   const findings = scopeTo(all.findings, changed);
