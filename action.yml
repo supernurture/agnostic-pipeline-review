@@ -275,6 +275,12 @@ runs:
         [ -s "$file" ] || exit 0
         marker="<!-- agnostic-pipeline-review -->"
         body="$marker"$'\n'"$(cat "$file")"
+        # GitHub rejects a comment over 65536 characters and a full report can
+        # reach that, so cut it rather than lose the comment entirely.
+        limit=60000
+        if [ "${#body}" -gt "$limit" ]; then
+          body="${body:0:$limit}"$'\n\n'"_Truncated — the full report is in the run's Job Summary._"
+        fi
         # Reuse our own comment so a long-running PR does not collect one per run.
         id="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
           --jq "map(select((.body // \"\") | startswith(\"$marker\"))) | .[0].id // empty" \
