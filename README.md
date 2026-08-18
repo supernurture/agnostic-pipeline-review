@@ -90,6 +90,9 @@ These land in **their own section, off the CVSS scale**, for the same reason
 commit messages do: style is not a security finding, and inventing a severity
 for it would corrupt the gate. They also **do not fail the build** — if you want
 a linter to block a merge, let its own step fail; that mechanism already exists.
+A broken or empty SARIF still fails, though: `ruff check … > ruff.sarif` leaves
+an empty file when ruff itself crashes, and a linter that silently did not run
+must not pass for clean.
 `scope` still applies, so they are limited to the changed files like the rest.
 
 Deliberately not built in: hardcoding Ruff, ESLint and golangci-lint would give
