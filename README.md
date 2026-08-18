@@ -17,6 +17,7 @@ on: [pull_request]
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 15         # see below — the action cannot set its own
     steps:
       - uses: actions/checkout@v7
         with:
@@ -385,12 +386,18 @@ change at all.
 
 ## Development
 
+Four checks, and CI runs all four:
+
 ```sh
-node scripts/report.test.mjs
+node scripts/report.test.mjs         # the report: bands, gate, scoping, sections
+node scripts/jscpd-to-sarif.test.mjs # the duplication converter
+bash scripts/steps.test.sh           # the shell that decides things
+shellcheck scripts/*.sh
 ```
 
 Needs Node ≥ 18.3 (`util.parseArgs`). GitHub runners already satisfy that with
-no setup step.
+no setup step, and `shellcheck` is preinstalled there — locally, if you have not
+installed it, `npx --yes shellcheck scripts/*.sh` needs nothing.
 
 `.github/workflows/self-test.yml` runs that self-check, then uses
 `examples/fixtures/` to prove each scanner really finds something — and that the

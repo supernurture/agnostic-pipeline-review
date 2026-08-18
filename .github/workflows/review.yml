@@ -15,6 +15,13 @@ permissions:
   contents: read
   pull-requests: write
 
+# The same guard self-test.yml carries, and this job needs it more: it installs
+# three scanners, so a branch pushed to twice in a minute would otherwise run
+# them twice over.
+concurrency:
+  group: review-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   review:
     runs-on: ubuntu-latest
