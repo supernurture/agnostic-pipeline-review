@@ -288,7 +288,7 @@ runs:
     # loses it on failure. Neither is possible from here.
     - name: Upload the report
       if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.upload-artifact != '' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.upload-artifact }}
         path: ${{ steps.parse.outputs.dir }}
