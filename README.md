@@ -55,6 +55,12 @@ findings earlier; only the protected branch enforces them.
 | `vulnerability` | [Trivy](https://github.com/aquasecurity/trivy) + [Gitleaks](https://github.com/gitleaks/gitleaks) | Dependency CVEs, IaC misconfig, leaked secrets |
 | `commit-message` | [commitlint](https://commitlint.js.org) | Conventional Commits |
 
+Gitleaks scans the **working tree**, not the commit history. A secret that was
+added and then deleted inside the same PR is not caught, even though merging
+keeps it in the history forever. Catching that means `gitleaks git` and
+`fetch-depth: 0` on every run; this pipeline takes the fast side of that trade
+on purpose.
+
 commitlint's **exit status** is what decides, not its output. Rules you set to
 warning level are printed in the report and do not block the merge.
 
