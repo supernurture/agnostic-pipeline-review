@@ -31,6 +31,9 @@ jobs:
 Project A writes `code,vulnerability`. Project B writes `commit-message`. No
 other file has to change.
 
+Needs a **Linux runner** (`ubuntu-latest`): the action uses `pipx`, `tar` and
+`sha256sum`, and downloads the Linux build of Gitleaks.
+
 ### Limiting it to certain branches
 
 GitHub has no "protected branches" filter — `branches:` only takes name

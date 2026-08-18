@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   review:
+    # Linux only: the action uses pipx, tar and sha256sum.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
