@@ -15,11 +15,15 @@ concurrency:
 
 jobs:
   unit:
-    name: report.mjs
+    name: unit + shellcheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/report.test.mjs
+      - run: bash scripts/steps.test.sh
+      # Preinstalled on the runner. The extracted shell is where the bugs have
+      # actually been, so it gets a static pass on top of its own tests.
+      - run: shellcheck scripts/*.sh
 
   # Kept out of the matrix below: this one is about the copy step in action.yml,
   # not about the scanners. `reviews: commit-message` runs no SARIF scanner at
