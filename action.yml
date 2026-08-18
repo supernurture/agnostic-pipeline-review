@@ -2,6 +2,11 @@ name: Agnostic Review Pipeline
 description: Code, vulnerability, and commit message review with a CVSS-ranked severity report.
 author: supernurture
 
+# Required to list on the GitHub Marketplace; the icon set is Feather's.
+branding:
+  icon: shield
+  color: purple
+
 inputs:
   reviews:
     description: "Enabled reviews, comma-separated: code, vulnerability, commit-message"

@@ -1,0 +1,42 @@
+# This repository reviewing itself with its own action, exactly the way a
+# consumer would. self-test.yml proves the action *works*; nothing there ever
+# lets a finding block anything — every call is continue-on-error, and half the
+# rows expect failure. So until now the one repository publishing this gate was
+# the one repository not standing behind it.
+#
+# Pull requests only. self-test.yml already covers push, and a gate belongs on
+# the thing being merged.
+name: Review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # commitlint reads the PR's commit range, and `scope` needs both ends
+          # of the diff.
+          fetch-depth: 0
+
+      # `./`, not the published tag: a pull request has to be reviewed by the
+      # code it is proposing, otherwise a change that breaks the gate sails
+      # through on the strength of the last release.
+      - uses: ./
+        with:
+          reviews: code,vulnerability,commit-message
+          fail-on: high
+          # The default, spelled out because it is doing real work here:
+          # examples/fixtures/ is deliberately full of secrets and injections,
+          # and scoping to the diff is what keeps them out of every unrelated
+          # pull request. Touch a fixture and it is flagged — correctly.
+          scope: changed
+          pr-comment: "true"
+          upload-artifact: review-report

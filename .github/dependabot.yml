@@ -11,3 +11,8 @@ updates:
 # them by hand. The `rev:` pins in presets/pre-commit.yaml are manual too.
 # `trivy-version` and `commitlint-version` are absent from that list on purpose:
 # they default to `latest`, so there is no pin to go stale.
+#
+# Dependabot rewrites .github/workflows/ and action.yml, and nothing else — so
+# the same `uses:` lines copied into README.md and examples/ silently fall
+# behind after every bump. Those are the two copies new users start from, so
+# grep for the old version and update them by hand when a PR lands.

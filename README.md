@@ -18,7 +18,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0        # needed for the PR diff and for commitlint
 
@@ -316,7 +316,7 @@ doing it yourself — the `report-dir` output is still there:
         with:
           reviews: code,vulnerability
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()         # without this the artifact is lost exactly when the review fails
         with:
           name: review-report
@@ -395,6 +395,10 @@ no setup step.
 `.github/workflows/self-test.yml` runs that self-check, then uses
 `examples/fixtures/` to prove each scanner really finds something — and that the
 findings disappear when its review is unplugged.
+
+`.github/workflows/review.yml` is this repository reviewing itself with its own
+action, the way a consumer would. self-test.yml proves the action works; it
+never lets a finding block anything. This one does.
 
 ## License
 
