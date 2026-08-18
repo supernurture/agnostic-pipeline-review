@@ -83,10 +83,10 @@ jobs:
           # exactly that, not masquerade as "the gate is broken". Hence the
           # content checks run before the pass/fail comparison.
           expect_findings() {
-            [ -s "$1" ] || { echo "::error::$(basename "$1") hilang atau kosong"; exit 1; }
+            [ -s "$1" ] || { echo "::error::$(basename "$1") is missing or empty"; exit 1; }
             n="$(results "$1")"
-            echo "$(basename "$1"): $n result"
-            [ "$n" -gt 0 ] || { echo "::error::fixture tidak lagi memicu $(basename "$1" .sarif)"; exit 1; }
+            echo "$(basename "$1"): $n results"
+            [ "$n" -gt 0 ] || { echo "::error::fixtures no longer trigger $(basename "$1" .sarif)"; exit 1; }
           }
 
           # Lego: a SARIF file may only exist for a review that was requested.
@@ -98,15 +98,15 @@ jobs:
                 # CVE database depends on the network/registry, so demanding
                 # findings here would make the test flaky for reasons outside
                 # this repo.
-                [ -s "$DIR/trivy.sarif" ] || { echo "::error::trivy.sarif hilang"; exit 1; } ;;
+                [ -s "$DIR/trivy.sarif" ] || { echo "::error::trivy.sarif is missing"; exit 1; } ;;
               *)
-                [ ! -f "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks jalan padahal tidak diminta"; exit 1; } ;;
+                [ ! -f "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks ran without being requested"; exit 1; } ;;
             esac
             case "$REVIEWS" in
               *code*)
                 expect_findings "$DIR/semgrep.sarif" ;;
               *)
-                [ ! -f "$DIR/semgrep.sarif" ] || { echo "::error::semgrep jalan padahal tidak diminta"; exit 1; } ;;
+                [ ! -f "$DIR/semgrep.sarif" ] || { echo "::error::semgrep ran without being requested"; exit 1; } ;;
             esac
             case "$REVIEWS" in
               *commit-message*)
@@ -114,15 +114,15 @@ jobs:
                 # passes. So presence is what we assert — without this check
                 # commitlint could die silently while the matrix row stays green
                 # on another scanner's findings.
-                [ -f "$DIR/commit.txt" ] || { echo "::error::commit.txt hilang, commitlint tidak jalan"; exit 1; } ;;
+                [ -f "$DIR/commit.txt" ] || { echo "::error::commit.txt is missing, commitlint did not run"; exit 1; } ;;
               *)
-                [ ! -f "$DIR/commit.txt" ] || { echo "::error::commitlint jalan padahal tidak diminta"; exit 1; } ;;
+                [ ! -f "$DIR/commit.txt" ] || { echo "::error::commitlint ran without being requested"; exit 1; } ;;
             esac
           fi
 
           if [ "$OUTCOME" = "success" ]; then got=pass; else got=fail; fi
           if [ "$got" != "$EXPECTED" ]; then
-            echo "::error::'$REVIEWS' @ fail-on=$FAIL_ON harusnya $EXPECTED, ternyata $got"
+            echo "::error::'$REVIEWS' @ fail-on=$FAIL_ON should be $EXPECTED, got $got"
             exit 1
           fi
 
@@ -130,7 +130,7 @@ jobs:
       # raw SARIF must be downloadable for inspection. It has to come after
       # Assert: the review step is already continue-on-error, so before this
       # point failure() never fires.
-      - name: Simpan SARIF mentah saat gagal
+      - name: Upload raw SARIF on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:

@@ -101,7 +101,7 @@ try {
           results: [
             {
               ruleId: "aws-key",
-              message: { text: "AWS  key\nditemukan" },
+              message: { text: "AWS  key\nfound" },
               locations: [
                 { physicalLocation: { artifactLocation: { uri: "db.py" }, region: { startLine: 7 } } },
               ],
@@ -117,7 +117,7 @@ try {
   assert.equal(findings.length, 1);
   assert.equal(findings[0].severity, "Critical");
   assert.equal(findings[0].location, "db.py:7");
-  assert.equal(findings[0].message, "AWS key ditemukan"); // whitespace flattened
+  assert.equal(findings[0].message, "AWS key found"); // whitespace flattened
   assert.equal(problems.length, 1);
   assert.match(problems[0], /broken\.sarif/);
 
@@ -147,7 +147,7 @@ try {
 
   let r = run([clean, "--fail-on", "high"]);
   assert.equal(r.code, 0, "no findings -> pass");
-  assert.match(r.stdout, /Tidak ada temuan/);
+  assert.match(r.stdout, /No findings/);
 
   // The main test dir holds broken.sarif -> always fails, even under fail-on none
   r = run([dir, "--fail-on", "none"]);
@@ -156,12 +156,12 @@ try {
   // A Critical finding with the gate off -> passes, but the report stays complete
   const onlyOk = mkdtempSync(join(tmpdir(), "apr-ok-"));
   writeFileSync(join(onlyOk, "ok.sarif"), JSON.stringify({
-    runs: [{ tool: { driver: { name: "gitleaks" } }, results: [{ ruleId: "k", message: { text: "bocor" } }] }],
+    runs: [{ tool: { driver: { name: "gitleaks" } }, results: [{ ruleId: "k", message: { text: "leaked" } }] }],
   }));
   r = run([onlyOk, "--fail-on", "none"]);
   assert.equal(r.code, 0, "fail-on none must pass");
   assert.match(r.stdout, /Critical \(1\)/, "report is still produced when the gate is off");
-  assert.match(r.stdout, /tidak ada severity yang menggagalkan/i);
+  assert.match(r.stdout, /no severity fails the build/i);
   // A finding without a location must not render an empty backticked placeholder.
   assert.doesNotMatch(r.stdout, /`—`/);
   assert.match(r.stdout, /^- gitleaks\/k$/m);
@@ -185,7 +185,7 @@ try {
   assert.match(r.stdout, /subject may not be empty/);
 
   // A bogus --fail-on exits 2 rather than silently falling back to the default
-  r = run([clean, "--fail-on", "ngawur"]);
+  r = run([clean, "--fail-on", "bogus"]);
   assert.equal(r.code, 2);
 
   rmSync(clean, { recursive: true, force: true });
@@ -194,4 +194,4 @@ try {
   rmSync(dir, { recursive: true, force: true });
 }
 
-console.log("report.mjs: semua check lolos");
+console.log("report.mjs: all checks passed");

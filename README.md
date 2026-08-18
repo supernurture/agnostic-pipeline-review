@@ -1,12 +1,13 @@
 # Agnostic Review Pipeline
 
-Review pipeline yang bisa dipasang proyek lain: **code review**, **vulnerability
-review**, dan **commit message review** — pilih yang dipakai, copot yang tidak.
-Hasilnya satu report dengan severity **Critical / High / Medium / Low / Info**.
+A review pipeline any project can plug in: **code review**, **vulnerability
+review**, and **commit message review** — plug in what you need, unplug what you
+don't. The result is a single report ranked by severity: **Critical / High /
+Medium / Low / Info**.
 
-Multi-bahasa (mengikuti cakupan Semgrep & Trivy) dan gratis seluruhnya.
+Multi-language (it inherits Semgrep and Trivy's coverage) and free end to end.
 
-## Pakai
+## Use
 
 ```yaml
 # .github/workflows/review.yml
@@ -19,86 +20,87 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # commitlint memeriksa rentang commit PR
+          fetch-depth: 0        # commitlint inspects the PR's commit range
 
       - uses: supernurture/agnostic-pipeline-review@v1
         with:
-          reviews: code,vulnerability     # <- pasang / copot di sini
+          reviews: code,vulnerability     # <- plug in / unplug here
           fail-on: high                   # default
 ```
 
-Proyek A menulis `code,vulnerability`. Proyek B menulis `commit-message`. Tidak
-ada file lain yang perlu diubah.
+Project A writes `code,vulnerability`. Project B writes `commit-message`. No
+other file has to change.
 
-## Review yang tersedia
+## Available reviews
 
-| Nama | Mesin | Cakupan |
+| Name | Engine | Coverage |
 |---|---|---|
-| `code` | [Semgrep OSS](https://semgrep.dev) | Bug & pola rawan, 30+ bahasa |
-| `vulnerability` | [Trivy](https://github.com/aquasecurity/trivy) + [Gitleaks](https://github.com/gitleaks/gitleaks) | CVE dependensi, misconfig IaC, secret bocor |
+| `code` | [Semgrep OSS](https://semgrep.dev) | Bugs & risky patterns, 30+ languages |
+| `vulnerability` | [Trivy](https://github.com/aquasecurity/trivy) + [Gitleaks](https://github.com/gitleaks/gitleaks) | Dependency CVEs, IaC misconfig, leaked secrets |
 | `commit-message` | [commitlint](https://commitlint.js.org) | Conventional Commits |
 
-## Input
+## Inputs
 
-| Input | Default | Keterangan |
+| Input | Default | Notes |
 |---|---|---|
-| `reviews` | — | Wajib. Dipisah koma. Nama tak dikenal = gagal. |
-| `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `info`, atau `none` |
-| `semgrep-config` | `p/ci` | Ruleset Semgrep, lihat [semgrep.dev/r](https://semgrep.dev/r) |
-| `semgrep-version` | `1.173.0` | Versi engine. Rule-nya tetap segar — `p/ci` diambil dari registry saat run |
-| `gitleaks-version` | `8.30.1` | Versi biner yang diunduh (checksum diverifikasi) |
+| `reviews` | — | Required. Comma-separated. An unknown name fails the run. |
+| `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `info`, or `none` |
+| `semgrep-config` | `p/ci` | Semgrep ruleset, see [semgrep.dev/r](https://semgrep.dev/r) |
+| `semgrep-version` | `1.173.0` | Engine version. The rules stay fresh — `p/ci` is pulled from the registry at run time |
+| `gitleaks-version` | `8.30.1` | Version of the binary that gets downloaded (checksum verified) |
 
-Output `report-dir` berisi `review-report.md` dan SARIF mentah tiap scanner —
-lihat [Ekspor & bagikan](#ekspor--bagikan).
+The `report-dir` output holds `review-report.md` and each scanner's raw SARIF —
+see [Export & share](#export--share).
 
 ## Severity
 
-Tidak ada skala buatan sendiri. Formatnya **SARIF 2.1.0**, dan band-nya diambil
-dari `properties.security-severity` — skor CVSS — memakai pembagian baku GitHub
-code scanning:
+No home-grown scale. The format is **SARIF 2.1.0**, and the bands come from
+`properties.security-severity` — a CVSS score — using GitHub code scanning's
+standard split:
 
-| Band | Skor CVSS |
+| Band | CVSS score |
 |---|---|
 | Critical | ≥ 9.0 |
 | High | 7.0 – 8.9 |
 | Medium | 4.0 – 6.9 |
 | Low | 0.1 – 3.9 |
-| Info | tanpa skor / temuan non-security |
+| Info | no score / non-security finding |
 
-Scanner yang tidak memberi skor dipetakan lewat tabel fallback di
-[`scripts/report.mjs`](scripts/report.mjs): temuan Gitleaks dianggap **Critical**
-(kredensial hidup yang bocor bersifat kritis), Semgrep memakai level SARIF-nya.
+Scanners that assign no score are mapped through the fallback table in
+[`scripts/report.mjs`](scripts/report.mjs): a Gitleaks finding counts as
+**Critical** (a leaked live credential is critical), Semgrep uses its own SARIF
+level.
 
-### Catatan penting soal `code` + `fail-on: high`
+### One thing to know about `code` + `fail-on: high`
 
-Sebagian besar rule keamanan Semgrep diberi severity `WARNING`, yang di SARIF jadi
-`warning` dan di sini jadi **Medium**. Konsekuensinya: dengan `fail-on: high`
-(default), **`reviews: code` sendirian sering tidak memblokir apa pun** — ia
-melapor tanpa nge-gate.
+Most Semgrep security rules ship with severity `WARNING`, which becomes `warning`
+in SARIF and **Medium** here. The consequence: with `fail-on: high` (the
+default), **`reviews: code` on its own often blocks nothing** — it reports
+without gating.
 
-Terlihat langsung di CI repo ini: dengan `reviews: code` dan `fail-on: high`,
-pipeline **lolos** walau `examples/fixtures/` berisi SQL injection, `shell=True`,
-dan `eval()` — tidak satu pun dinilai High.
+You can see it in this repo's own CI: with `reviews: code` and `fail-on: high`
+the pipeline **passes** even though `examples/fixtures/` contains SQL injection,
+`shell=True`, and `eval()` — not one of them is rated High.
 
-Pilih sesuai seleramu:
+Pick whichever you prefer:
 
-- **Biarkan `high`** kalau code review memang dimaksudkan sebagai masukan, dan
-  yang boleh memblokir merge cuma temuan keamanan berat (secret, CVE).
-- **Pakai `fail-on: medium`** kalau kamu mau temuan Semgrep ikut nge-gate.
+- **Leave it at `high`** if code review is meant as input, and only serious
+  security findings (secrets, CVEs) may block a merge.
+- **Use `fail-on: medium`** if you want Semgrep findings to gate as well.
 
-Default sengaja dibiarkan `high` karena band-nya mengikuti penilaian severity
-milik Semgrep sendiri — menaikkannya berarti mengarang severity, dan itu
-melanggar prinsip "ikuti standar yang sudah ada" yang jadi dasar repo ini.
+The default is deliberately left at `high` because the bands follow Semgrep's
+own severity judgement — raising them would mean inventing severity, which
+breaks the "follow the existing standard" principle this repo is built on.
 
 ## Report
 
-Ditulis ke **Job Summary** GitHub, jadi langsung terbaca di halaman workflow run
-— tanpa token tambahan dan tetap jalan di repo private.
+Written to the GitHub **Job Summary**, so it is readable straight from the
+workflow run page — no extra token, and it still works on private repos.
 
 ```markdown
 ## Review Report
 
-| Severity | Jumlah |
+| Severity | Count |
 |---|---:|
 | Critical | 2 |
 | High | 5 |
@@ -107,28 +109,28 @@ Ditulis ke **Job Summary** GitHub, jadi langsung terbaca di halaman workflow run
 | Info | 8 |
 | **Total** | **29** |
 
-Gate: gagal pada **High** ke atas.
+Gate: fails at **High** and above.
 
 ### Critical (2)
 - `src/db.py:42` — gitleaks/aws-access-token
-  AWS access token ditemukan
+  AWS access token found
 - `requirements.txt:3` — Trivy/CVE-2020-14343
   PyYAML 5.1: arbitrary code execution
 ```
 
-Temuan commit message masuk section terpisah — gaya penulisan commit bukan
-temuan keamanan, jadi ia tidak dipaksa masuk skala CVSS.
+Commit message findings get their own section — commit style is not a security
+finding, so it is not forced onto the CVSS scale.
 
-### Ekspor & bagikan
+### Export & share
 
-Ada tiga cara, dengan batasan akses yang berbeda-beda:
+Three ways, each with different access constraints:
 
-**1. Kirim URL run.** Job Summary tampil di halaman workflow run:
-`https://github.com/<owner>/<repo>/actions/runs/<id>`. Kalau repo-nya publik,
-siapa pun bisa membukanya tanpa login. Paling cepat untuk dikirim ke tim.
+**1. Send the run URL.** The Job Summary is shown on the workflow run page:
+`https://github.com/<owner>/<repo>/actions/runs/<id>`. On a public repo anyone
+can open it without logging in. Fastest thing to send to your team.
 
-**2. Unduh sebagai artifact.** Tambahkan satu step di sisi pemakai — output
-`report-dir` sudah menyediakan direktorinya:
+**2. Download it as an artifact.** Add one step on the consumer side — the
+`report-dir` output already gives you the directory:
 
 ```yaml
       - uses: supernurture/agnostic-pipeline-review@v1
@@ -137,79 +139,79 @@ siapa pun bisa membukanya tanpa login. Paling cepat untuk dikirim ke tim.
           reviews: code,vulnerability
 
       - uses: actions/upload-artifact@v4
-        if: always()          # tanpa ini, artifact hilang justru saat review gagal
+        if: always()          # without this the artifact is lost exactly when the review fails
         with:
           name: review-report
           path: ${{ steps.review.outputs.report-dir }}
 ```
 
-Isinya:
+What's inside:
 
-| File | Untuk apa |
+| File | What for |
 |---|---|
-| `review-report.md` | Report yang sama persis dengan Job Summary — tinggal tempel ke chat/tiket |
-| `*.sarif` | Data mentah tiap scanner, format standar yang bisa dibaca tool lain |
-| `commit.txt` | Output commitlint, kosong kalau semua pesan lolos |
+| `review-report.md` | Byte-for-byte the same report as the Job Summary — paste it into chat or a ticket |
+| `*.sarif` | Each scanner's raw data, a standard format other tools can read |
+| `commit.txt` | commitlint output, empty when every message passes |
 
-Catatan: **mengunduh artifact selalu butuh login GitHub**, termasuk di repo
-publik. Jadi untuk penerima di luar tim, cara 1 atau 3 lebih praktis.
+Note: **downloading an artifact always requires a GitHub login**, public repos
+included. So for recipients outside the team, option 1 or 3 is more practical.
 
-**3. Salin teksnya.** `review-report.md` adalah Markdown biasa berisi
-`file:baris`, rule id, dan pesan — bentuk yang langsung bisa dipakai orang
-maupun ditempel ke AI untuk minta perbaikan. Kalau AI-nya butuh konteks lebih
-(cuplikan kode, CWE, saran fix), kirim `.sarif`-nya: SARIF 2.1.0 adalah format
-standar yang sudah dimengerti banyak tool.
+**3. Copy the text.** `review-report.md` is plain Markdown holding `file:line`,
+rule ids, and messages — a shape people can act on directly, and one you can
+paste into an AI to ask for fixes. If the AI needs more context (code snippet,
+CWE, suggested fix), send the `.sarif` instead: SARIF 2.1.0 is a standard format
+many tools already understand.
 
-## Kapan build gagal
+## When the build fails
 
-- Ada temuan pada atau di atas `fail-on`
-- Ada pelanggaran commit message
-- **Scanner yang diaktifkan tidak menghasilkan laporan**, atau SARIF-nya rusak
+- A finding at or above `fail-on`
+- A commit message violation
+- **An enabled scanner produced no report**, or its SARIF is broken
 
-Poin terakhir sengaja tetap menggagalkan build bahkan saat `fail-on: none`:
-scanner yang mati bukan berarti "tidak ada temuan", dan kegagalan seperti itu
-tidak boleh lolos jadi hijau.
+That last point deliberately keeps failing the build even under `fail-on: none`:
+a scanner that died does not mean "no findings", and a failure like that must
+not slip through as green.
 
-## Lane lokal (opsional)
+## Local lane (optional)
 
-[`presets/pre-commit.yaml`](presets/pre-commit.yaml) menjalankan scanner yang
-sama di mesin developer sebagai gate cepat pass/fail. Salin ke
-`.pre-commit-config.yaml`, lalu:
+[`presets/pre-commit.yaml`](presets/pre-commit.yaml) runs the same scanners on a
+developer machine as a fast pass/fail gate. Copy it to
+`.pre-commit-config.yaml`, then:
 
 ```sh
 pre-commit install --install-hooks -t pre-commit -t commit-msg
 ```
 
-Ia tidak menghasilkan report bertingkat severity — pre-commit hanya
-mengembalikan exit code. Sumber kebenarannya tetap CI.
+It does not produce the severity-ranked report — pre-commit only returns an exit
+code. CI stays the source of truth.
 
-## Menambah jenis review baru
+## Adding a new kind of review
 
-Dua tempat, dan memang cuma dua:
+Two places, and only two:
 
-1. Tambah step di [`action.yml`](action.yml) yang menulis SARIF ke `$REPORT_DIR`,
-   plus nama filenya di `expect` pada step validasi.
-2. Kalau tool-nya tidak mengisi `security-severity`, tambah satu entri di
-   `TOOL_FALLBACK` di [`scripts/report.mjs`](scripts/report.mjs).
+1. Add a step in [`action.yml`](action.yml) that writes SARIF into `$REPORT_DIR`,
+   plus its filename in `expect` in the validation step.
+2. If the tool does not fill in `security-severity`, add one entry to
+   `TOOL_FALLBACK` in [`scripts/report.mjs`](scripts/report.mjs).
 
-Tool yang sudah emit SARIF ber-`security-severity` tidak butuh perubahan
-`report.mjs` sama sekali.
+A tool that already emits SARIF with `security-severity` needs no `report.mjs`
+change at all.
 
-## Pengembangan
+## Development
 
 ```sh
 node scripts/report.test.mjs
 ```
 
-Butuh Node ≥ 18.3 (`util.parseArgs`). Runner GitHub sudah memenuhinya tanpa
-step setup apa pun.
+Needs Node ≥ 18.3 (`util.parseArgs`). GitHub runners already satisfy that with
+no setup step.
 
-`.github/workflows/self-test.yml` menjalankan self-check itu lalu memakai
-`examples/fixtures/` untuk membuktikan tiap scanner memang menemukan sesuatu —
-dan bahwa temuannya hilang saat review-nya dicopot.
+`.github/workflows/self-test.yml` runs that self-check, then uses
+`examples/fixtures/` to prove each scanner really finds something — and that the
+findings disappear when its review is unplugged.
 
-## Lisensi
+## License
 
-[MIT](LICENSE). Scanner yang dipanggilnya punya lisensinya sendiri: Semgrep OSS
-(LGPL-2.1), Trivy (Apache-2.0), Gitleaks (MIT), commitlint (MIT) — semuanya
-dijalankan sebagai proses terpisah, bukan ditautkan ke dalam kode ini.
+[MIT](LICENSE). The scanners it calls carry their own licenses: Semgrep OSS
+(LGPL-2.1), Trivy (Apache-2.0), Gitleaks (MIT), commitlint (MIT) — all of them
+run as separate processes, not linked into this code.

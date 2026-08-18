@@ -1,34 +1,34 @@
 name: Agnostic Review Pipeline
-description: Code, vulnerability, dan commit message review dengan report bertingkat severity CVSS.
+description: Code, vulnerability, and commit message review with a CVSS-ranked severity report.
 author: supernurture
 
 inputs:
   reviews:
-    description: "Review yang aktif, dipisah koma: code, vulnerability, commit-message"
+    description: "Enabled reviews, comma-separated: code, vulnerability, commit-message"
     required: true
   fail-on:
-    description: "Severity minimum yang menggagalkan build: critical, high, medium, low, info, none"
+    description: "Lowest severity that fails the build: critical, high, medium, low, info, none"
     required: false
     default: high
   semgrep-config:
-    description: "Ruleset Semgrep (lihat semgrep.dev/r)"
+    description: "Semgrep ruleset (see semgrep.dev/r)"
     required: false
     default: p/ci
   # The engine version is pinned for reproducible results. The rules stay
   # fresh regardless: --config p/ci pulls the ruleset from the registry at run
   # time.
   semgrep-version:
-    description: "Versi Semgrep yang dipasang"
+    description: "Semgrep version to install"
     required: false
     default: "1.173.0"
   gitleaks-version:
-    description: "Versi Gitleaks yang diunduh"
+    description: "Gitleaks version to download"
     required: false
     default: "8.30.1"
 
 outputs:
   report-dir:
-    description: "Direktori berisi review-report.md dan SARIF mentah tiap scanner"
+    description: "Directory holding review-report.md and each scanner's raw SARIF"
     value: ${{ steps.parse.outputs.dir }}
 
 runs:
@@ -36,7 +36,7 @@ runs:
   steps:
     # Review names are validated up front: a typo must fail loudly rather than
     # silently skip a review.
-    - name: Validasi review yang diminta
+    - name: Validate requested reviews
       id: parse
       shell: bash
       env:
@@ -45,7 +45,7 @@ runs:
       run: |
         set -euo pipefail
         if [ -z "$(echo "$REVIEWS" | tr -d '[:space:],')" ]; then
-          echo "::error::input 'reviews' kosong (pilihan: code, vulnerability, commit-message)"
+          echo "::error::input 'reviews' is empty (choices: code, vulnerability, commit-message)"
           exit 1
         fi
         mkdir -p "$REPORT_DIR"
@@ -61,7 +61,7 @@ runs:
             commit-message)
               echo "run_commit=true" >> "$GITHUB_OUTPUT" ;;
             *)
-              echo "::error::review tidak dikenal: '$r' (pilihan: code, vulnerability, commit-message)"
+              echo "::error::unknown review: '$r' (choices: code, vulnerability, commit-message)"
               exit 1 ;;
           esac
         done
@@ -110,15 +110,15 @@ runs:
         tmp="$(mktemp -d)"
         base="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}"
         tarball="gitleaks_${VERSION}_linux_x64.tar.gz"
-        curl -sSfL -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::gagal mengunduh gitleaks v${VERSION}"; exit 1; }
-        curl -sSfL -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::gagal mengunduh checksum gitleaks"; exit 1; }
+        curl -sSfL -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::failed to download gitleaks v${VERSION}"; exit 1; }
+        curl -sSfL -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::failed to download the gitleaks checksums"; exit 1; }
         # A binary from the internet: the checksum must be verified, and a
         # mismatch is fatal. awk matches the filename exactly; grep would treat
         # the dots in the tarball name as wildcards.
         want="$(awk -v f="$tarball" '$2 == f { print $1 }' "$tmp/checksums.txt")"
-        [ -n "$want" ] || { echo "::error::checksum untuk $tarball tidak ada di manifest"; exit 1; }
+        [ -n "$want" ] || { echo "::error::no checksum for $tarball in the manifest"; exit 1; }
         ( cd "$tmp" && echo "$want  $tarball" | sha256sum -c - ) \
-          || { echo "::error::checksum gitleaks tidak cocok"; exit 1; }
+          || { echo "::error::gitleaks checksum mismatch"; exit 1; }
         tar -xzf "$tmp/$tarball" -C "$tmp" gitleaks
         # `dir` scans the working tree; the report is written outside the repo
         # so it does not get scanned itself on a later run.
@@ -157,7 +157,7 @@ runs:
         # An install failure must surface as an error rather than masquerade as
         # a commit message violation inside commit.txt.
         run_commitlint --version >/dev/null 2>&1 \
-          || { echo "::error::gagal memasang commitlint"; exit 1; }
+          || { echo "::error::failed to install commitlint"; exit 1; }
         run_commitlint --from "$from" --to "$to" $extends > "$REPORT_DIR/commit.txt" 2>&1 || true
 
     - name: Report

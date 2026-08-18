@@ -104,7 +104,7 @@ export function collect(dir) {
     try {
       doc = JSON.parse(readFileSync(join(dir, file), "utf8"));
     } catch (err) {
-      problems.push(`\`${file}\` tidak bisa dibaca: ${err.message}`);
+      problems.push(`\`${file}\` could not be read: ${err.message}`);
       continue;
     }
     for (const run of doc.runs ?? []) {
@@ -165,18 +165,18 @@ export function render({ findings, problems, commitLog, failOn, missing }) {
   const out = ["## Review Report", ""];
 
   if (missing.length) {
-    out.push("> **Scanner tidak menghasilkan laporan:** " + missing.map((m) => `\`${m}\``).join(", "));
-    out.push("> Hasil di bawah ini tidak lengkap.", "");
+    out.push("> **Scanner produced no report:** " + missing.map((m) => `\`${m}\``).join(", "));
+    out.push("> The results below are incomplete.", "");
   }
   for (const p of problems) out.push(`> ${p}`, "");
 
-  out.push("| Severity | Jumlah |", "|---|---:|");
+  out.push("| Severity | Count |", "|---|---:|");
   for (const s of SEVERITIES) out.push(`| ${s} | ${c[s]} |`);
   out.push(`| **Total** | **${findings.length}** |`, "");
   out.push(
     failOn === "none"
-      ? "Gate: tidak ada severity yang menggagalkan build."
-      : `Gate: gagal pada **${failOn}** ke atas.`,
+      ? "Gate: no severity fails the build."
+      : `Gate: fails at **${failOn}** and above.`,
     "",
   );
 
@@ -189,7 +189,7 @@ export function render({ findings, problems, commitLog, failOn, missing }) {
       if (f.message) out.push(`  ${f.message}`);
     }
     if (items.length > MAX_PER_BAND) {
-      out.push(`- _...dan ${items.length - MAX_PER_BAND} temuan ${s} lainnya._`);
+      out.push(`- _...and ${items.length - MAX_PER_BAND} more ${s} findings._`);
     }
     out.push("");
   }
@@ -197,11 +197,11 @@ export function render({ findings, problems, commitLog, failOn, missing }) {
   if (commitLog !== null) {
     out.push("### Commit Message", "");
     // Commit style is not a security finding, so it stays off the CVSS scale.
-    out.push(commitLog ? "```\n" + commitLog + "\n```" : "Semua pesan commit lolos.", "");
+    out.push(commitLog ? "```\n" + commitLog + "\n```" : "All commit messages passed.", "");
   }
 
   if (!findings.length && !missing.length && !problems.length) {
-    out.push("Tidak ada temuan.", "");
+    out.push("No findings.", "");
   }
   return out.join("\n");
 }
@@ -211,7 +211,7 @@ function normalizeFailOn(raw) {
   if (value === "none") return "none";
   const match = SEVERITIES.find((s) => s.toLowerCase() === value);
   if (!match) {
-    throw new Error(`--fail-on tidak dikenal: ${raw} (pilihan: ${SEVERITIES.join(", ").toLowerCase()}, none)`);
+    throw new Error(`unknown --fail-on: ${raw} (choices: ${SEVERITIES.join(", ").toLowerCase()}, none)`);
   }
   return match;
 }
