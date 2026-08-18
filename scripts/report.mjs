@@ -25,6 +25,12 @@ const TOOL_FALLBACK = {
 
 const LEVEL_FALLBACK = { error: "High", warning: "Medium", note: "Info", none: "Info" };
 
+// Tools that normally do carry security-severity. When one of them stops, every
+// band it produces shifts to TOOL_FALLBACK and the gate changes without any
+// error — so the report says it out loud. Gitleaks is absent on purpose: it
+// never scores, and its fallback is the intended behaviour.
+const EXPECT_SCORE = ["trivy", "semgrep"];
+
 // Keys come from a SARIF file, so never index the map bare: a level of
 // "constructor" would return a function instead of the default.
 function pick(map, key, dflt) {
@@ -53,6 +59,13 @@ function findRule(result, ctx) {
   const i = result.ruleIndex;
   if (Number.isInteger(i) && i >= 0 && i < ctx.driverRules.length) return ctx.driverRules[i];
   return null;
+}
+
+/** Whether a CVSS score was available at all — on the result or on its rule. */
+function hasScore(result, ctx) {
+  if (Number.isFinite(score(result.properties))) return true;
+  const rule = findRule(result, ctx);
+  return Boolean(rule) && Number.isFinite(score(rule.properties));
 }
 
 /** Resolution order: result -> rule -> per-tool fallback -> SARIF level. */
@@ -95,6 +108,7 @@ export function collect(dir) {
   // start getting in the way.
   const findings = [];
   const problems = [];
+  const notes = [];
   const files = existsSync(dir)
     ? readdirSync(dir).filter((f) => f.endsWith(".sarif")).sort()
     : [];
@@ -116,7 +130,10 @@ export function collect(dir) {
         if (rule?.id) byId.set(rule.id, rule);
       }
       const ctx = { tool: driver.name ?? file, driverRules, byId };
-      for (const result of run.results ?? []) {
+      const results = run.results ?? [];
+      let scored = 0;
+      for (const result of results) {
+        if (hasScore(result, ctx)) scored += 1;
         findings.push({
           severity: severity(result, ctx),
           tool: ctx.tool,
@@ -125,9 +142,15 @@ export function collect(dir) {
           message: message(result),
         });
       }
+      const name = String(ctx.tool).toLowerCase();
+      if (results.length && !scored && EXPECT_SCORE.some((k) => name.includes(k))) {
+        notes.push(
+          `\`${ctx.tool}\` emitted no \`security-severity\` — its bands came from the fallback table, not from CVSS.`,
+        );
+      }
     }
   }
-  return { findings, problems };
+  return { findings, problems, notes };
 }
 
 /** An enabled scanner that left no report is a failure, not a pass. */
@@ -160,7 +183,7 @@ export function gate(findings, failOn) {
 // GitHub does not cut the report off mid-way.
 const MAX_PER_BAND = 50;
 
-export function render({ findings, problems, commitLog, failOn, missing }) {
+export function render({ findings, problems, notes, commitLog, failOn, missing }) {
   const c = counts(findings);
   const out = ["## Review Report", ""];
 
@@ -169,6 +192,7 @@ export function render({ findings, problems, commitLog, failOn, missing }) {
     out.push("> The results below are incomplete.", "");
   }
   for (const p of problems) out.push(`> ${p}`, "");
+  for (const n of notes) out.push(`> ${n}`, "");
 
   out.push("| Severity | Count |", "|---|---:|");
   for (const s of SEVERITIES) out.push(`| ${s} | ${c[s]} |`);
@@ -230,12 +254,12 @@ function main(argv) {
   const failOn = normalizeFailOn(values["fail-on"]);
   const expected = values.expect.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const { findings, problems } = collect(dir);
+  const { findings, problems, notes } = collect(dir);
   const missing = missingReports(dir, expected);
   const commitPath = join(dir, "commit.txt");
   const commitLog = existsSync(commitPath) ? readFileSync(commitPath, "utf8").trim() : null;
 
-  const markdown = render({ findings, problems, commitLog, failOn, missing });
+  const markdown = render({ findings, problems, notes, commitLog, failOn, missing });
   process.stdout.write(markdown + "\n");
   // Also written as a file so the report can be uploaded as an artifact and
   // handed to a teammate or a tool — the Job Summary alone cannot be exported.

@@ -25,6 +25,17 @@ inputs:
     description: "Gitleaks version to download"
     required: false
     default: "8.30.1"
+  # Trivy and commitlint default to `latest` on purpose: for those two the
+  # version *is* the freshness — the CVE database and the rule defaults. Pin
+  # them to reproduce an old run or to roll back a bad release.
+  trivy-version:
+    description: "Trivy version to install"
+    required: false
+    default: latest
+  commitlint-version:
+    description: "commitlint version to install"
+    required: false
+    default: latest
 
 outputs:
   report-dir:
@@ -88,6 +99,8 @@ runs:
     - name: Setup Trivy
       if: steps.parse.outputs.run_vuln == 'true'
       uses: aquasecurity/setup-trivy@v0.3.1
+      with:
+        version: ${{ inputs.trivy-version }}
 
     - name: Vulnerability review — Trivy
       if: steps.parse.outputs.run_vuln == 'true'
@@ -135,6 +148,7 @@ runs:
         FROM: ${{ github.event.pull_request.base.sha }}
         TO: ${{ github.event.pull_request.head.sha }}
         REPORT_DIR: ${{ steps.parse.outputs.dir }}
+        COMMITLINT_VERSION: ${{ inputs.commitlint-version }}
       run: |
         set -uo pipefail
         # Outside a pull_request context, check only the latest commit.
@@ -150,8 +164,10 @@ runs:
         done
 
         # npx --yes: never touches the consumer's package.json / node_modules.
+        # Both packages share one version line upstream, so they take one pin.
         run_commitlint() {
-          npx --yes --package @commitlint/cli --package @commitlint/config-conventional -- \
+          npx --yes --package "@commitlint/cli@$COMMITLINT_VERSION" \
+            --package "@commitlint/config-conventional@$COMMITLINT_VERSION" -- \
             commitlint "$@"
         }
         # An install failure must surface as an error rather than masquerade as

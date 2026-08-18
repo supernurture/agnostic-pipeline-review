@@ -177,6 +177,31 @@ try {
   // A missing scanner fails the build even with no findings
   assert.equal(run([onlyOk, "--fail-on", "none", "--expect", "trivy.sarif"]).code, 1);
 
+  // --- A tool that normally scores but stopped ---
+  // Its bands move to the fallback table with no error anywhere, so the report
+  // has to say so — as a note, not as a build failure.
+  const noScore = mkdtempSync(join(tmpdir(), "apr-noscore-"));
+  const sarif = (tool, extra) =>
+    JSON.stringify({ runs: [{ tool: { driver: { name: tool } }, results: [{ ruleId: "x", ...extra }] }] });
+
+  writeFileSync(join(noScore, "trivy.sarif"), sarif("Trivy Vulnerability Scanner", { level: "error" }));
+  assert.equal(collect(noScore).notes.length, 1, "a scoreless Trivy must be flagged");
+  assert.match(collect(noScore).notes[0], /security-severity/);
+  r = run([noScore, "--fail-on", "none"]);
+  assert.equal(r.code, 0, "the note must not fail the build");
+  assert.match(r.stdout, /security-severity/);
+
+  // Gitleaks never scores — that is the design, not a regression
+  writeFileSync(join(noScore, "trivy.sarif"), sarif("gitleaks", { level: "error" }));
+  assert.deepEqual(collect(noScore).notes, []);
+
+  // ...and a Trivy that still scores stays quiet
+  writeFileSync(
+    join(noScore, "trivy.sarif"),
+    sarif("Trivy Vulnerability Scanner", { properties: { "security-severity": "7.5" } }),
+  );
+  assert.deepEqual(collect(noScore).notes, []);
+
   // A commit message violation fails, and shows up in its own section
   writeFileSync(join(onlyOk, "commit.txt"), "subject may not be empty");
   r = run([onlyOk, "--fail-on", "none"]);
@@ -190,6 +215,7 @@ try {
 
   rmSync(clean, { recursive: true, force: true });
   rmSync(onlyOk, { recursive: true, force: true });
+  rmSync(noScore, { recursive: true, force: true });
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

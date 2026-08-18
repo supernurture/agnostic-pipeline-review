@@ -48,9 +48,33 @@ other file has to change.
 | `semgrep-config` | `p/ci` | Semgrep ruleset, see [semgrep.dev/r](https://semgrep.dev/r) |
 | `semgrep-version` | `1.173.0` | Engine version. The rules stay fresh — `p/ci` is pulled from the registry at run time |
 | `gitleaks-version` | `8.30.1` | Version of the binary that gets downloaded (checksum verified) |
+| `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
+| `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
 
 The `report-dir` output holds `review-report.md` and each scanner's raw SARIF —
 see [Export & share](#export--share).
+
+### Versions
+
+Engines are pinned, their data is not, and that split is deliberate: a stale
+ruleset or CVE database is more dangerous than a stale binary.
+
+- `semgrep-version` and `gitleaks-version` pin a binary. The Semgrep rules
+  (`p/ci`) are still pulled from the registry on every run.
+- `trivy-version` and `commitlint-version` default to `latest`, because for
+  those two the version *is* the freshness — the CVE database, and the rules
+  commitlint applies by default. Pin them to reproduce an old run or to roll
+  back a bad upstream release.
+
+So the same commit can produce different findings a week later. That is the
+point rather than a bug, but it does mean a green PR can turn red without
+anyone touching it.
+
+If a scanner that normally reports a CVSS score stops doing so, every band it
+produces quietly falls back to the table in
+[`scripts/report.mjs`](scripts/report.mjs). The report calls that out as a note
+instead of letting the gate shift in silence — it does not fail the build, since
+the findings are still real.
 
 ## Severity
 
