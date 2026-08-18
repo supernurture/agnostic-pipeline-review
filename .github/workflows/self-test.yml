@@ -58,6 +58,10 @@ jobs:
           reviews: commit-message
           fail-on: critical
           extra-sarif: style.sarif
+          # Same reason the matrix below pins it: the fixture is never in a
+          # diff, so the default scope would hide the one finding this job
+          # exists to look for. This tests the copy step, not the scoping.
+          scope: all
 
       - name: Assert
         env:
