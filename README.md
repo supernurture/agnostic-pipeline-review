@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # commitlint inspects the PR's commit range
+          fetch-depth: 0        # needed for the PR diff and for commitlint
 
       - uses: supernurture/agnostic-pipeline-review@v1
         with:
@@ -75,9 +75,34 @@ warning level are printed in the report and do not block the merge.
 | `gitleaks-version` | `8.30.1` | Version of the binary that gets downloaded (checksum verified) |
 | `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
 | `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
+| `scope` | `changed` | `changed` gates only on files in the PR diff, `all` on the whole tree — see [Scope](#scope) |
 
 The `report-dir` output holds `review-report.md` and each scanner's raw SARIF —
 see [Export & share](#export--share).
+
+### Scope
+
+By default the gate looks only at findings in files the pull request actually
+touches. Everything else is still counted and announced — never dropped in
+silence:
+
+```
+> Not listed: 183 finding(s) in files this change does not touch.
+```
+
+This is what makes the pipeline usable on a repository that did not start with
+it. Without scoping, a codebase with two years of history turns every pull
+request red on day one, and by day three nobody reads the report at all. The
+diff is the baseline, so there is no baseline file to maintain and nothing to
+keep in sync.
+
+It needs both ends of the pull request range in the local clone — that is what
+`fetch-depth: 0` buys. Outside a pull request there is no range, and if the diff
+cannot be produced for any reason the report covers everything: hiding findings
+because a command failed would be the worst possible default here.
+
+Use `scope: all` when you want the whole tree gated, for example on a nightly
+run.
 
 ### Versions
 
@@ -202,7 +227,7 @@ What's inside:
 | `*.sarif` | Each scanner's raw data, a standard format other tools can read |
 | `commit.txt` | commitlint output, empty when every message passes |
 | `commit.failed` | Present only when commitlint exited non-zero — this is what the gate reads |
-| `commit.failed` | Present only when commitlint exited non-zero — this is what the gate reads |
+| `changed.txt` | The PR's changed files, when `scope: changed` had a diff to work from |
 
 Note: **downloading an artifact always requires a GitHub login**, public repos
 included. So for recipients outside the team, option 1 or 3 is more practical.

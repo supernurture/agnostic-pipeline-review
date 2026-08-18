@@ -63,6 +63,10 @@ jobs:
         with:
           reviews: ${{ matrix.reviews }}
           fail-on: ${{ matrix.fail-on }}
+          # The fixtures are never in a pull request's diff, so the default
+          # scope would scope every expected finding away and turn the whole
+          # matrix green. This suite tests the scanners, not the scoping.
+          scope: all
 
       - name: Assert
         env:

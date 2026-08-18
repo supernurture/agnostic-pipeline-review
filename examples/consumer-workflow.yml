@@ -18,8 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # commitlint inspects the PR's commit range, so it needs full history.
-          # Safe to drop if you are not using the commit-message review.
+          # Full history: commitlint reads the PR's commit range, and `scope`
+          # needs both ends of the diff. Safe to drop only if you use neither.
           fetch-depth: 0
 
       - uses: supernurture/agnostic-pipeline-review@v1
@@ -27,3 +27,6 @@ jobs:
           # Plug in / unplug reviews on this line.
           reviews: code,vulnerability,commit-message
           fail-on: high
+          # Gate on files this PR touches; everything else is reported, not
+          # dropped. Use `all` to gate on the whole tree.
+          scope: changed

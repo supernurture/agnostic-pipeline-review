@@ -36,6 +36,10 @@ inputs:
     description: "commitlint version to install"
     required: false
     default: latest
+  scope:
+    description: "Findings the gate looks at: changed (files in the PR diff) or all"
+    required: false
+    default: changed
 
 outputs:
   report-dir:
@@ -52,6 +56,7 @@ runs:
       shell: bash
       env:
         REVIEWS: ${{ inputs.reviews }}
+        SCOPE: ${{ inputs.scope }}
         REPORT_DIR: ${{ runner.temp }}/agnostic-review
       run: |
         set -euo pipefail
@@ -59,6 +64,10 @@ runs:
           echo "::error::input 'reviews' is empty (choices: code, vulnerability, commit-message)"
           exit 1
         fi
+        case "$SCOPE" in
+          changed|all) ;;
+          *) echo "::error::unknown scope: '$SCOPE' (choices: changed, all)"; exit 1 ;;
+        esac
         mkdir -p "$REPORT_DIR"
         expect=""
         for r in $(echo "$REVIEWS" | tr ',' ' '); do
@@ -197,6 +206,20 @@ runs:
         FAIL_ON: ${{ inputs.fail-on }}
         EXPECT: ${{ steps.parse.outputs.expect }}
         REPORT_DIR: ${{ steps.parse.outputs.dir }}
+        SCOPE: ${{ inputs.scope }}
+        BASE: ${{ github.event.pull_request.base.sha }}
+        HEAD: ${{ github.event.pull_request.head.sha }}
       run: |
-        node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" \
-          --fail-on "$FAIL_ON" --expect "$EXPECT"
+        set -uo pipefail
+        args=(--fail-on "$FAIL_ON" --expect "$EXPECT")
+        # Scoping needs both ends of the PR range in the local clone, which is
+        # what fetch-depth: 0 buys. Outside a pull request there is no range.
+        # If the diff cannot be produced the report covers everything: hiding
+        # findings on a failure would be the worst possible default here.
+        if [ "$SCOPE" = changed ] && [ -n "$BASE" ] \
+          && git diff --name-only "$BASE...$HEAD" > "$REPORT_DIR/changed.txt" 2>/dev/null; then
+          args+=(--changed "$REPORT_DIR/changed.txt")
+        else
+          rm -f "$REPORT_DIR/changed.txt"
+        fi
+        node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" "${args[@]}"

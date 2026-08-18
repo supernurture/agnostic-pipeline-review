@@ -6,6 +6,7 @@
 // for the Critical/High/Medium/Low/Info bands.
 //
 // Usage: node scripts/report.mjs reports/ --fail-on high --expect a.sarif,b.sarif
+//                                         [--changed changed.txt]
 
 import { existsSync, readFileSync, readdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -167,6 +168,24 @@ export function missingReports(dir, expected) {
   });
 }
 
+/**
+ * Paths from `git diff --name-only`, or null when there is nothing to scope to.
+ * An empty file counts as null: scoping to zero files would hide everything,
+ * and a security report must fail open.
+ */
+export function readChanged(path) {
+  if (!path || !existsSync(path)) return null;
+  const lines = readFileSync(path, "utf8").split("\n").map((s) => s.trim()).filter(Boolean);
+  return lines.length ? new Set(lines) : null;
+}
+
+/** Keep only findings in files this change touches. */
+export function scopeTo(findings, changed) {
+  if (!changed) return findings;
+  // A finding with no location cannot be shown to be pre-existing, so it stays.
+  return findings.filter((f) => !f.location || changed.has(f.location.replace(/:\d+$/, "")));
+}
+
 export function counts(findings) {
   const out = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
   for (const f of findings) out[f.severity] += 1;
@@ -184,7 +203,7 @@ export function gate(findings, failOn) {
 // GitHub does not cut the report off mid-way.
 const MAX_PER_BAND = 50;
 
-export function render({ findings, problems, notes, commitLog, commitFailed, failOn, missing }) {
+export function render({ findings, problems, notes, commitLog, commitFailed, failOn, missing, skipped }) {
   const c = counts(findings);
   const out = ["## Review Report", ""];
 
@@ -194,6 +213,8 @@ export function render({ findings, problems, notes, commitLog, commitFailed, fai
   }
   for (const p of problems) out.push(`> ${p}`, "");
   for (const n of notes) out.push(`> ${n}`, "");
+  // Never drop findings without saying so.
+  if (skipped) out.push(`> Not listed: ${skipped} finding(s) in files this change does not touch.`, "");
 
   out.push("| Severity | Count |", "|---|---:|");
   for (const s of SEVERITIES) out.push(`| ${s} | ${c[s]} |`);
@@ -201,7 +222,7 @@ export function render({ findings, problems, notes, commitLog, commitFailed, fai
   out.push(
     failOn === "none"
       ? "Gate: no severity fails the build."
-      : `Gate: fails at **${failOn}** and above.`,
+      : `Gate: fails at **${failOn}** and above${skipped === null ? "" : ", on changed files only"}.`,
     "",
   );
 
@@ -232,7 +253,7 @@ export function render({ findings, problems, notes, commitLog, commitFailed, fai
   }
 
   if (!findings.length && !missing.length && !problems.length) {
-    out.push("No findings.", "");
+    out.push(skipped ? "No findings in the files this change touches." : "No findings.", "");
   }
   return out.join("\n");
 }
@@ -254,6 +275,7 @@ function main(argv) {
     options: {
       "fail-on": { type: "string", default: "high" },
       expect: { type: "string", default: "" },
+      changed: { type: "string", default: "" },
     },
   });
 
@@ -261,7 +283,12 @@ function main(argv) {
   const failOn = normalizeFailOn(values["fail-on"]);
   const expected = values.expect.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const { findings, problems, notes } = collect(dir);
+  const all = collect(dir);
+  const { problems, notes } = all;
+  const changed = readChanged(values.changed);
+  const findings = scopeTo(all.findings, changed);
+  // null means "not scoped at all", which reads differently from "scoped, none hidden".
+  const skipped = changed ? all.findings.length - findings.length : null;
   const missing = missingReports(dir, expected);
   const commitPath = join(dir, "commit.txt");
   const commitLog = existsSync(commitPath) ? readFileSync(commitPath, "utf8").trim() : null;
@@ -269,7 +296,7 @@ function main(argv) {
   // not a verdict: commitlint prints warning-level rules and still exits 0.
   const commitFailed = existsSync(join(dir, "commit.failed"));
 
-  const markdown = render({ findings, problems, notes, commitLog, commitFailed, failOn, missing });
+  const markdown = render({ findings, problems, notes, commitLog, commitFailed, failOn, missing, skipped });
   process.stdout.write(markdown + "\n");
   // Also written as a file so the report can be uploaded as an artifact and
   // handed to a teammate or a tool — the Job Summary alone cannot be exported.

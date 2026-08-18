@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { band, severity, location, collect, gate, counts, missingReports } from "./report.mjs";
+import {
+  band, severity, location, collect, gate, counts, missingReports, readChanged, scopeTo,
+} from "./report.mjs";
 
 const REPORT = fileURLToPath(new URL("./report.mjs", import.meta.url));
 const ctx = (tool) => ({ tool, driverRules: [], byId: new Map() });
@@ -88,6 +90,21 @@ assert.equal(gate(found, "Low"), true);
 assert.equal(gate([{ severity: "Critical" }], "High"), true);
 assert.equal(gate([{ severity: "Critical" }], "none"), false);
 assert.equal(gate([], "Info"), false);
+
+// --- Scoping to the files a change touches ---
+{
+  const f = (location) => ({ severity: "Critical", location });
+  const changed = new Set(["src/db.py"]);
+  assert.equal(scopeTo([f("src/db.py:7")], changed).length, 1);
+  assert.equal(scopeTo([f("src/other.py:7")], changed).length, 0);
+  // No line number, and no location at all
+  assert.equal(scopeTo([f("src/db.py")], changed).length, 1);
+  assert.equal(scopeTo([f(null)], changed).length, 1, "an unlocatable finding must not be hidden");
+  // A colon inside the path must not be mistaken for a line number
+  assert.equal(scopeTo([f("a:b.py")], new Set(["a:b.py"])).length, 1);
+  // Without a change list nothing is filtered
+  assert.equal(scopeTo([f("src/other.py:7")], null).length, 1);
+}
 
 // --- Reading a directory: broken SARIF is reported, not swallowed ---
 const dir = mkdtempSync(join(tmpdir(), "apr-"));
@@ -173,6 +190,38 @@ try {
   // Writing it must not make the next run treat it as an input
   assert.equal(collect(onlyOk).findings.length, 1, "the .md must not be parsed as SARIF");
   assert.equal(run([onlyOk, "--fail-on", "critical"]).code, 1);
+
+  // --- Scoping end to end: an out-of-scope Critical must not gate ---
+  const scoped = mkdtempSync(join(tmpdir(), "apr-scope-"));
+  writeFileSync(join(scoped, "ok.sarif"), JSON.stringify({
+    runs: [{
+      tool: { driver: { name: "gitleaks" } },
+      results: [{
+        ruleId: "k",
+        message: { text: "leaked" },
+        locations: [{ physicalLocation: { artifactLocation: { uri: "db.py" }, region: { startLine: 7 } } }],
+      }],
+    }],
+  }));
+  const changedFile = join(scoped, "changed.txt");
+
+  writeFileSync(changedFile, "other.py\n");
+  r = run([scoped, "--fail-on", "critical", "--changed", changedFile]);
+  assert.equal(r.code, 0, "a finding outside the diff must not gate");
+  assert.match(r.stdout, /Not listed: 1 finding/, "hidden findings must still be announced");
+  assert.match(r.stdout, /on changed files only/);
+
+  writeFileSync(changedFile, "db.py\n");
+  assert.equal(run([scoped, "--fail-on", "critical", "--changed", changedFile]).code, 1);
+
+  // An empty or missing list must fail open — scoping to nothing would hide
+  // every finding in the repo.
+  writeFileSync(changedFile, "\n  \n");
+  assert.equal(readChanged(changedFile), null);
+  assert.equal(run([scoped, "--fail-on", "critical", "--changed", changedFile]).code, 1);
+  assert.equal(readChanged(join(scoped, "nope.txt")), null);
+  assert.equal(run([scoped, "--fail-on", "critical"]).code, 1, "no --changed means no scoping");
+  rmSync(scoped, { recursive: true, force: true });
 
   // A missing scanner fails the build even with no findings
   assert.equal(run([onlyOk, "--fail-on", "none", "--expect", "trivy.sarif"]).code, 1);
