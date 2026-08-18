@@ -80,6 +80,13 @@ check "two files sharing a basename" "0" "$?"
 check "are numbered apart" "0-lint.sarif 1-lint.sarif" "$(cd "$dest" && echo *)"
 
 rm -rf "$dest"
+# A YAML block input arrives with newlines, not commas.
+EXTRA="one/lint.sarif
+two/lint.sarif" collect_extra_sarif "$dest"
+check "a multi-line input" "0" "$?"
+check "keeps every line" "0-lint.sarif 1-lint.sarif" "$(cd "$dest" && echo *)"
+
+rm -rf "$dest"
 EXTRA="one/*.sarif" collect_extra_sarif "$dest"
 check "a glob is expanded" "0-lint.sarif" "$(cd "$dest" && echo *)"
 

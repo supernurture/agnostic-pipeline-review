@@ -47,7 +47,10 @@ collect_extra_sarif() {
   local dest="$1" pattern f found n=0
   local -a patterns
   mkdir -p "$dest"
-  read -r -a patterns <<< "$(echo "${EXTRA:-}" | tr ',' ' ')"
+  # Newlines too, not just commas: a YAML block input is the natural way to
+  # list several files, and `read -a` would silently stop at the first line.
+  read -r -a patterns <<< "$(echo "${EXTRA:-}" | tr ',
+' '  ')"
   for pattern in ${patterns[@]+"${patterns[@]}"}; do
     found=0
     # shellcheck disable=SC2086  # unquoted on purpose: the pattern is a glob

@@ -83,7 +83,8 @@ it is merged into the same report:
 
 Anything that writes SARIF works — Ruff natively, ESLint through
 `@microsoft/eslint-formatter-sarif`, PMD with `-f sarif`, Clippy through
-`clippy-sarif`. Comma- or space-separated, globs allowed. A path matching
+`clippy-sarif`. Separate several with commas, spaces, or newlines; globs are
+allowed. A path matching
 nothing fails the run, the same rule the built-in scanners are held to.
 
 These land in **their own section, off the CVSS scale**, for the same reason
