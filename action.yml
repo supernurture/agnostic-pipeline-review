@@ -169,19 +169,8 @@ runs:
         COMMITLINT_VERSION: ${{ inputs.commitlint-version }}
       run: |
         set -uo pipefail
-        # Outside a pull_request context, check only the latest commit.
-        from="${FROM:-$(git rev-parse HEAD~1 2>/dev/null || true)}"
-        to="${TO:-HEAD}"
-
-        # With no parent commit — a shallow checkout, or the very first commit —
-        # commitlint refuses a --from that equals --to and prints its whole usage
-        # text, which would land in the report as a bogus commit violation.
-        # --last is what it asks for in that case.
-        if [ -n "$from" ]; then
-          range=(--from "$from" --to "$to")
-        else
-          range=(--last)
-        fi
+        . "$GITHUB_ACTION_PATH/scripts/steps.sh"
+        mapfile -t range < <(commit_range)
 
         # An unmatched glob stays a literal string, so -e is what decides.
         # `ls a b` cannot be used: it returns non-zero when either argument is
@@ -217,22 +206,10 @@ runs:
         REPORT_DIR: ${{ steps.parse.outputs.dir }}
       run: |
         set -uo pipefail
-        dest="$REPORT_DIR/style"
-        mkdir -p "$dest"
-        n=0
-        for pattern in $(echo "$EXTRA" | tr ',' ' '); do
-          found=0
-          for f in $pattern; do
-            [ -f "$f" ] || continue
-            # Numbered so two linters cannot overwrite each other, and forced to
-            # .sarif because that is what the report reads.
-            cp "$f" "$dest/$n-$(basename "$f" .sarif).sarif"
-            n=$((n + 1)); found=1
-          done
-          # A path matching nothing is a broken pipeline, not an empty result —
-          # the same rule the built-in scanners are held to.
-          [ "$found" = 1 ] || { echo "::error::extra-sarif matched no file: '$pattern'"; exit 1; }
-        done
+        . "$GITHUB_ACTION_PATH/scripts/steps.sh"
+        # "style" is also STYLE_DIR in report.mjs — the one string the two
+        # languages have to agree on.
+        collect_extra_sarif "$REPORT_DIR/style" || exit 1
 
     - name: Report
       if: ${{ always() && steps.parse.outputs.ok == 'true' }}
@@ -246,16 +223,10 @@ runs:
         HEAD: ${{ github.event.pull_request.head.sha }}
       run: |
         set -uo pipefail
+        . "$GITHUB_ACTION_PATH/scripts/steps.sh"
         args=(--fail-on "$FAIL_ON" --expect "$EXPECT")
-        # Scoping needs both ends of the PR range in the local clone, which is
-        # what fetch-depth: 0 buys. Outside a pull request there is no range.
-        # If the diff cannot be produced the report covers everything: hiding
-        # findings on a failure would be the worst possible default here.
-        if [ "$SCOPE" = changed ] && [ -n "$BASE" ] \
-          && git diff --name-only "$BASE...$HEAD" > "$REPORT_DIR/changed.txt" 2>/dev/null; then
+        if changed_files "$REPORT_DIR/changed.txt"; then
           args+=(--changed "$REPORT_DIR/changed.txt")
-        else
-          rm -f "$REPORT_DIR/changed.txt"
         fi
         node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" "${args[@]}"
 
