@@ -292,4 +292,8 @@ runs:
       with:
         name: ${{ inputs.upload-artifact }}
         path: ${{ steps.parse.outputs.dir }}
-        if-no-files-found: ignore
+        # warn, not ignore: the directory is created up front and the report is
+        # always written into it, so finding it empty means something upstream
+        # broke. `ignore` would leave the user hunting the Actions tab for an
+        # artifact that was never created, with nothing said about why.
+        if-no-files-found: warn

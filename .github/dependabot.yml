@@ -9,3 +9,5 @@ updates:
 # Note: the `semgrep-version` and `gitleaks-version` inputs in action.yml are
 # out of Dependabot's reach — both are self-downloaded binary versions, so bump
 # them by hand. The `rev:` pins in presets/pre-commit.yaml are manual too.
+# `trivy-version` and `commitlint-version` are absent from that list on purpose:
+# they default to `latest`, so there is no pin to go stale.

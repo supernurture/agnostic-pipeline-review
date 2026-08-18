@@ -304,7 +304,8 @@ can open it without logging in. Fastest thing to send to your team.
 
 A name rather than a boolean because artifact names must be unique within a
 run — calling this action twice, or from a matrix, needs one name per call
-(`review-${{ matrix.reviews }}`). Leave it empty and nothing is uploaded.
+(`review-${{ strategy.job-index }}`, which is what this repo uses on its own
+matrix). Leave it empty and nothing is uploaded.
 
 If you need `retention-days`, `compression-level`, or a narrower path, keep
 doing it yourself — the `report-dir` output is still there:
