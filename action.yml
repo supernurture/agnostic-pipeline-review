@@ -122,7 +122,10 @@ runs:
         tar -xzf "$tmp/$tarball" -C "$tmp" gitleaks
         # `dir` scans the working tree; the report is written outside the repo
         # so it does not get scanned itself on a later run.
-        "$tmp/gitleaks" dir . --report-format sarif \
+        # --redact matters: without it the SARIF carries the raw secret, which
+        # would then be copied into CI logs and any uploaded artifact. The file
+        # and line are enough to locate it.
+        "$tmp/gitleaks" dir . --report-format sarif --redact \
           --report-path "$REPORT_DIR/gitleaks.sarif" --exit-code 0 --no-banner || true
 
     - name: Commit message review — commitlint
