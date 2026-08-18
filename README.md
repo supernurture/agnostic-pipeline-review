@@ -96,6 +96,31 @@ an empty file when ruff itself crashes, and a linter that silently did not run
 must not pass for clean.
 `scope` still applies, so they are limited to the changed files like the rest.
 
+#### Duplication
+
+No linter finds duplicated code, and no free clone detector emits SARIF. So
+there is a converter — [`scripts/jscpd-to-sarif.mjs`](scripts/jscpd-to-sarif.mjs),
+about 90 lines — for [jscpd](https://github.com/kucherenko/jscpd), which is MIT
+and covers 150+ formats:
+
+```yaml
+      - run: |
+          npx --yes jscpd --reporters json --output .jscpd . || true
+          node scripts/jscpd-to-sarif.mjs .jscpd/jscpd-report.json > duplication.sarif
+
+      - uses: supernurture/agnostic-pipeline-review@v1
+        with:
+          reviews: code,vulnerability
+          extra-sarif: duplication.sarif
+```
+
+That is the shape for anything else too: SARIF is only JSON, so a tool without
+native support needs a small converter rather than a place in this action.
+
+Complexity and dead code do not need one — your linter already has them. Ruff
+`C901`, `F401` and `PLR09xx`, ESLint `complexity` and `no-unused-vars`, all
+SARIF-native. Turn the rules on and they arrive through the same input.
+
 Deliberately not built in: hardcoding Ruff, ESLint and golangci-lint would give
 a language-agnostic action a language matrix to maintain forever, and SARIF
 support across those tools is uneven. A project that has a language already

@@ -20,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node scripts/report.test.mjs
+      - run: node scripts/jscpd-to-sarif.test.mjs
       - run: bash scripts/steps.test.sh
       # Preinstalled on the runner. The extracted shell is where the bugs have
       # actually been, so it gets a static pass on top of its own tests.
