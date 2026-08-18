@@ -211,4 +211,8 @@ jobs:
         with:
           name: report-${{ strategy.job-index }}
           path: ${{ steps.review.outputs.report-dir }}
+          # ignore here, warn inside action.yml, and the difference is on
+          # purpose: this step only runs on a failed job, where the review may
+          # have exited before a report directory existed at all. Warning about
+          # that would just add noise to a run that is already red.
           if-no-files-found: ignore
