@@ -67,6 +67,36 @@ on purpose.
 commitlint's **exit status** is what decides, not its output. Rules you set to
 warning level are printed in the report and do not block the merge.
 
+### Coding standard
+
+Not a built-in review. Point `extra-sarif` at SARIF your own linter produced and
+it is merged into the same report:
+
+```yaml
+      - run: ruff check --output-format sarif > ruff.sarif || true
+
+      - uses: supernurture/agnostic-pipeline-review@v1
+        with:
+          reviews: code,vulnerability
+          extra-sarif: ruff.sarif
+```
+
+Anything that writes SARIF works — Ruff natively, ESLint through
+`@microsoft/eslint-formatter-sarif`, PMD with `-f sarif`, Clippy through
+`clippy-sarif`. Comma- or space-separated, globs allowed. A path matching
+nothing fails the run, the same rule the built-in scanners are held to.
+
+These land in **their own section, off the CVSS scale**, for the same reason
+commit messages do: style is not a security finding, and inventing a severity
+for it would corrupt the gate. They also **do not fail the build** — if you want
+a linter to block a merge, let its own step fail; that mechanism already exists.
+`scope` still applies, so they are limited to the changed files like the rest.
+
+Deliberately not built in: hardcoding Ruff, ESLint and golangci-lint would give
+a language-agnostic action a language matrix to maintain forever, and SARIF
+support across those tools is uneven. A project that has a language already
+knows its linter.
+
 ## Inputs
 
 | Input | Default | Notes |
@@ -79,6 +109,7 @@ warning level are printed in the report and do not block the merge.
 | `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
 | `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
 | `scope` | `changed` | `changed` gates only on files in the PR diff, `all` on the whole tree — see [Scope](#scope) |
+| `extra-sarif` | — | SARIF from your own linters — see [Coding standard](#coding-standard) |
 | `pr-comment` | `false` | Post the report as one self-updating PR comment. Needs `pull-requests: write` |
 
 The `report-dir` output holds `review-report.md` and each scanner's raw SARIF —
@@ -238,6 +269,7 @@ What's inside:
 | `commit.txt` | commitlint output, empty when every message passes |
 | `commit.failed` | Present only when commitlint exited non-zero — this is what the gate reads |
 | `changed.txt` | The PR's changed files, when `scope: changed` had a diff to work from |
+| `style/` | The `extra-sarif` files you passed in |
 
 Note: **downloading an artifact always requires a GitHub login**, public repos
 included. So for recipients outside the team, option 1 or 3 is more practical.
@@ -273,7 +305,11 @@ code. CI stays the source of truth.
 
 ## Adding a new kind of review
 
-Two places, and only two:
+If the tool already writes SARIF and you can run it yourself, use
+[`extra-sarif`](#coding-standard) instead — nothing here needs to change.
+
+To make it a first-class review with its own severity bands, two places, and
+only two:
 
 1. Add a step in [`action.yml`](action.yml) that writes SARIF into `$REPORT_DIR`,
    plus its filename in `expect` in the validation step.

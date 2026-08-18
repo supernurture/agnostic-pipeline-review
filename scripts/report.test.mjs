@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Self-check for report.mjs. Run with: node scripts/report.test.mjs
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -222,6 +222,40 @@ try {
   assert.equal(readChanged(join(scoped, "nope.txt")), null);
   assert.equal(run([scoped, "--fail-on", "critical"]).code, 1, "no --changed means no scoping");
   rmSync(scoped, { recursive: true, force: true });
+
+  // --- Coding standard findings: own section, no gate, still scoped ---
+  const styled = mkdtempSync(join(tmpdir(), "apr-style-"));
+  mkdirSync(join(styled, "style"));
+  writeFileSync(join(styled, "clean.sarif"), JSON.stringify({ runs: [] }));
+  writeFileSync(join(styled, "style", "0-ruff.sarif"), JSON.stringify({
+    runs: [{
+      tool: { driver: { name: "Ruff" } },
+      results: [{
+        ruleId: "E501",
+        level: "error",
+        message: { text: "Line too long" },
+        locations: [{ physicalLocation: { artifactLocation: { uri: "app.py" }, region: { startLine: 10 } } }],
+      }],
+    }],
+  }));
+
+  r = run([styled, "--fail-on", "critical"]);
+  assert.equal(r.code, 0, "style findings must not gate");
+  assert.match(r.stdout, /### Coding Standard \(1\)/);
+  assert.match(r.stdout, /`app\.py:10` — Ruff\/E501/);
+  // level: error must not become High in the CVSS table — that is the whole point
+  assert.match(r.stdout, /\| \*\*Total\*\* \| \*\*0\*\* \|/);
+  assert.doesNotMatch(r.stdout, /### High/);
+  assert.doesNotMatch(r.stdout, /No findings/, "a style finding is still a finding");
+
+  // Scoping applies here too, and the hidden ones are still announced
+  const styleChanged = join(styled, "changed.txt");
+  writeFileSync(styleChanged, "other.py\n");
+  r = run([styled, "--fail-on", "critical", "--changed", styleChanged]);
+  assert.equal(r.code, 0);
+  assert.doesNotMatch(r.stdout, /### Coding Standard/);
+  assert.match(r.stdout, /Not listed: 1 finding/);
+  rmSync(styled, { recursive: true, force: true });
 
   // A missing scanner fails the build even with no findings
   assert.equal(run([onlyOk, "--fail-on", "none", "--expect", "trivy.sarif"]).code, 1);

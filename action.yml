@@ -40,6 +40,10 @@ inputs:
     description: "Findings the gate looks at: changed (files in the PR diff) or all"
     required: false
     default: changed
+  extra-sarif:
+    description: "SARIF from your own linters, comma- or space-separated. Reported as coding standard findings, off the CVSS scale"
+    required: false
+    default: ""
   pr-comment:
     description: "Post the report as one self-updating PR comment (needs pull-requests: write)"
     required: false
@@ -202,6 +206,33 @@ runs:
         # so its exit status is the verdict — not whether commit.txt has content.
         run_commitlint "${range[@]}" $extends > "$REPORT_DIR/commit.txt" 2>&1 \
           || touch "$REPORT_DIR/commit.failed"
+
+    # Coding standard is not a built-in review: any linter that writes SARIF
+    # works, so the language matrix stays with the project that has one.
+    - name: Coding standard review — external SARIF
+      if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.extra-sarif != '' }}
+      shell: bash
+      env:
+        EXTRA: ${{ inputs.extra-sarif }}
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        set -uo pipefail
+        dest="$REPORT_DIR/style"
+        mkdir -p "$dest"
+        n=0
+        for pattern in $(echo "$EXTRA" | tr ',' ' '); do
+          found=0
+          for f in $pattern; do
+            [ -f "$f" ] || continue
+            # Numbered so two linters cannot overwrite each other, and forced to
+            # .sarif because that is what the report reads.
+            cp "$f" "$dest/$n-$(basename "$f" .sarif).sarif"
+            n=$((n + 1)); found=1
+          done
+          # A path matching nothing is a broken pipeline, not an empty result —
+          # the same rule the built-in scanners are held to.
+          [ "$found" = 1 ] || { echo "::error::extra-sarif matched no file: '$pattern'"; exit 1; }
+        done
 
     - name: Report
       if: ${{ always() && steps.parse.outputs.ok == 'true' }}

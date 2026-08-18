@@ -203,7 +203,23 @@ export function gate(findings, failOn) {
 // GitHub does not cut the report off mid-way.
 const MAX_PER_BAND = 50;
 
-export function render({ findings, problems, notes, commitLog, commitFailed, failOn, missing, skipped }) {
+// Findings from the consumer's own linters live here, in their own section and
+// off the CVSS scale: coding style is not a security finding.
+export const STYLE_DIR = "style";
+
+function pushItems(out, items, label) {
+  for (const f of items.slice(0, MAX_PER_BAND)) {
+    out.push(f.location ? `- \`${f.location}\` — ${f.tool}/${f.rule}` : `- ${f.tool}/${f.rule}`);
+    if (f.message) out.push(`  ${f.message}`);
+  }
+  if (items.length > MAX_PER_BAND) {
+    out.push(`- _...and ${items.length - MAX_PER_BAND} more ${label}._`);
+  }
+}
+
+export function render({
+  findings, style, problems, notes, commitLog, commitFailed, failOn, missing, skipped,
+}) {
   const c = counts(findings);
   const out = ["## Review Report", ""];
 
@@ -230,13 +246,15 @@ export function render({ findings, problems, notes, commitLog, commitFailed, fai
     const items = findings.filter((f) => f.severity === s);
     if (!items.length) continue;
     out.push(`### ${s} (${items.length})`, "");
-    for (const f of items.slice(0, MAX_PER_BAND)) {
-      out.push(f.location ? `- \`${f.location}\` — ${f.tool}/${f.rule}` : `- ${f.tool}/${f.rule}`);
-      if (f.message) out.push(`  ${f.message}`);
-    }
-    if (items.length > MAX_PER_BAND) {
-      out.push(`- _...and ${items.length - MAX_PER_BAND} more ${s} findings._`);
-    }
+    pushItems(out, items, `${s} findings`);
+    out.push("");
+  }
+
+  if (style.length) {
+    out.push(`### Coding Standard (${style.length})`, "");
+    // Off the CVSS scale for the same reason the commit message section is:
+    // style is not a security finding, and it does not move the gate.
+    pushItems(out, style, "findings");
     out.push("");
   }
 
@@ -252,7 +270,7 @@ export function render({ findings, problems, notes, commitLog, commitFailed, fai
     }
   }
 
-  if (!findings.length && !missing.length && !problems.length) {
+  if (!findings.length && !style.length && !missing.length && !problems.length) {
     out.push(skipped ? "No findings in the files this change touches." : "No findings.", "");
   }
   return out.join("\n");
@@ -284,11 +302,16 @@ function main(argv) {
   const expected = values.expect.split(",").map((s) => s.trim()).filter(Boolean);
 
   const all = collect(dir);
-  const { problems, notes } = all;
+  const styleAll = collect(join(dir, STYLE_DIR));
+  const problems = [...all.problems, ...styleAll.problems];
+  const { notes } = all;
   const changed = readChanged(values.changed);
   const findings = scopeTo(all.findings, changed);
+  const style = scopeTo(styleAll.findings, changed);
   // null means "not scoped at all", which reads differently from "scoped, none hidden".
-  const skipped = changed ? all.findings.length - findings.length : null;
+  const skipped = changed
+    ? all.findings.length - findings.length + styleAll.findings.length - style.length
+    : null;
   const missing = missingReports(dir, expected);
   const commitPath = join(dir, "commit.txt");
   const commitLog = existsSync(commitPath) ? readFileSync(commitPath, "utf8").trim() : null;
@@ -296,7 +319,9 @@ function main(argv) {
   // not a verdict: commitlint prints warning-level rules and still exits 0.
   const commitFailed = existsSync(join(dir, "commit.failed"));
 
-  const markdown = render({ findings, problems, notes, commitLog, commitFailed, failOn, missing, skipped });
+  const markdown = render({
+    findings, style, problems, notes, commitLog, commitFailed, failOn, missing, skipped,
+  });
   process.stdout.write(markdown + "\n");
   // Also written as a file so the report can be uploaded as an artifact and
   // handed to a teammate or a tool — the Job Summary alone cannot be exported.
