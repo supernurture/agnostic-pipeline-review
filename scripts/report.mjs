@@ -150,7 +150,8 @@ export function collect(dir) {
       }
     }
   }
-  return { findings, problems, notes };
+  // One tool can produce several runs; the same note must not repeat.
+  return { findings, problems, notes: [...new Set(notes)] };
 }
 
 /** An enabled scanner that left no report is a failure, not a pass. */
@@ -183,7 +184,7 @@ export function gate(findings, failOn) {
 // GitHub does not cut the report off mid-way.
 const MAX_PER_BAND = 50;
 
-export function render({ findings, problems, notes, commitLog, failOn, missing }) {
+export function render({ findings, problems, notes, commitLog, commitFailed, failOn, missing }) {
   const c = counts(findings);
   const out = ["## Review Report", ""];
 
@@ -219,9 +220,15 @@ export function render({ findings, problems, notes, commitLog, failOn, missing }
   }
 
   if (commitLog !== null) {
-    out.push("### Commit Message", "");
     // Commit style is not a security finding, so it stays off the CVSS scale.
-    out.push(commitLog ? "```\n" + commitLog + "\n```" : "All commit messages passed.", "");
+    out.push("### Commit Message", "");
+    if (!commitLog) {
+      out.push("All commit messages passed.", "");
+    } else {
+      out.push("```\n" + commitLog + "\n```", "");
+      // commitlint prints warning-level rules and still exits 0.
+      if (!commitFailed) out.push("Warnings only — this does not fail the build.", "");
+    }
   }
 
   if (!findings.length && !missing.length && !problems.length) {
@@ -258,8 +265,11 @@ function main(argv) {
   const missing = missingReports(dir, expected);
   const commitPath = join(dir, "commit.txt");
   const commitLog = existsSync(commitPath) ? readFileSync(commitPath, "utf8").trim() : null;
+  // Written by the commitlint step when it exited non-zero. Output on its own is
+  // not a verdict: commitlint prints warning-level rules and still exits 0.
+  const commitFailed = existsSync(join(dir, "commit.failed"));
 
-  const markdown = render({ findings, problems, notes, commitLog, failOn, missing });
+  const markdown = render({ findings, problems, notes, commitLog, commitFailed, failOn, missing });
   process.stdout.write(markdown + "\n");
   // Also written as a file so the report can be uploaded as an artifact and
   // handed to a teammate or a tool — the Job Summary alone cannot be exported.
@@ -271,17 +281,19 @@ function main(argv) {
   // A scanner that failed to run is an infrastructure error, not "no findings",
   // so it fails the build even under --fail-on none.
   if (missing.length || problems.length) return 1;
-  if (commitLog) return 1;
+  if (commitFailed) return 1;
   return gate(findings, failOn) ? 1 : 0;
 }
 
 // pathToFileURL, not `file://${argv[1]}`: the latter never matches on Windows
 // and is wrong for paths containing spaces.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // exitCode, not exit(): process.exit() does not wait for stdout to flush, so
+  // a long report piped somewhere would be cut off.
   try {
-    process.exit(main(process.argv.slice(2)));
+    process.exitCode = main(process.argv.slice(2));
   } catch (err) {
     console.error(err.message);
-    process.exit(2);
+    process.exitCode = 2;
   }
 }

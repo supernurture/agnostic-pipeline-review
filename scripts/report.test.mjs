@@ -186,6 +186,18 @@ try {
 
   writeFileSync(join(noScore, "trivy.sarif"), sarif("Trivy Vulnerability Scanner", { level: "error" }));
   assert.equal(collect(noScore).notes.length, 1, "a scoreless Trivy must be flagged");
+  // Two runs from the same tool must not repeat the note
+  writeFileSync(
+    join(noScore, "two-runs.sarif"),
+    JSON.stringify({
+      runs: [0, 1].map(() => ({
+        tool: { driver: { name: "Trivy Vulnerability Scanner" } },
+        results: [{ ruleId: "x", level: "error" }],
+      })),
+    }),
+  );
+  assert.equal(collect(noScore).notes.length, 1, "the note must be deduplicated");
+  rmSync(join(noScore, "two-runs.sarif"));
   assert.match(collect(noScore).notes[0], /security-severity/);
   r = run([noScore, "--fail-on", "none"]);
   assert.equal(r.code, 0, "the note must not fail the build");
@@ -202,12 +214,24 @@ try {
   );
   assert.deepEqual(collect(noScore).notes, []);
 
-  // A commit message violation fails, and shows up in its own section
+  // A commit message violation fails, and shows up in its own section.
+  // commit.failed is the verdict — the step writes it when commitlint exits
+  // non-zero, because output alone does not mean failure.
   writeFileSync(join(onlyOk, "commit.txt"), "subject may not be empty");
+  writeFileSync(join(onlyOk, "commit.failed"), "");
   r = run([onlyOk, "--fail-on", "none"]);
   assert.equal(r.code, 1);
   assert.match(r.stdout, /### Commit Message/);
   assert.match(r.stdout, /subject may not be empty/);
+
+  // commitlint prints warning-level rules and still exits 0: the text must be
+  // shown, and it must not fail the build.
+  rmSync(join(onlyOk, "commit.failed"));
+  writeFileSync(join(onlyOk, "commit.txt"), "found 0 problems, 1 warnings");
+  r = run([onlyOk, "--fail-on", "none"]);
+  assert.equal(r.code, 0, "warnings must not fail the build");
+  assert.match(r.stdout, /1 warnings/);
+  assert.match(r.stdout, /does not fail the build/);
 
   // A bogus --fail-on exits 2 rather than silently falling back to the default
   r = run([clean, "--fail-on", "bogus"]);

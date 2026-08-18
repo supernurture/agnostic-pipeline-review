@@ -152,8 +152,18 @@ runs:
       run: |
         set -uo pipefail
         # Outside a pull_request context, check only the latest commit.
-        from="${FROM:-$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)}"
+        from="${FROM:-$(git rev-parse HEAD~1 2>/dev/null || true)}"
         to="${TO:-HEAD}"
+
+        # With no parent commit — a shallow checkout, or the very first commit —
+        # commitlint refuses a --from that equals --to and prints its whole usage
+        # text, which would land in the report as a bogus commit violation.
+        # --last is what it asks for in that case.
+        if [ -n "$from" ]; then
+          range=(--from "$from" --to "$to")
+        else
+          range=(--last)
+        fi
 
         # An unmatched glob stays a literal string, so -e is what decides.
         # `ls a b` cannot be used: it returns non-zero when either argument is
@@ -174,7 +184,10 @@ runs:
         # a commit message violation inside commit.txt.
         run_commitlint --version >/dev/null 2>&1 \
           || { echo "::error::failed to install commitlint"; exit 1; }
-        run_commitlint --from "$from" --to "$to" $extends > "$REPORT_DIR/commit.txt" 2>&1 || true
+        # commitlint exits 0 for warning-level rules while still printing them,
+        # so its exit status is the verdict — not whether commit.txt has content.
+        run_commitlint "${range[@]}" $extends > "$REPORT_DIR/commit.txt" 2>&1 \
+          || touch "$REPORT_DIR/commit.failed"
 
     - name: Report
       if: ${{ always() && steps.parse.outputs.ok == 'true' }}

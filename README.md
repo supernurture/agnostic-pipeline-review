@@ -55,6 +55,9 @@ findings earlier; only the protected branch enforces them.
 | `vulnerability` | [Trivy](https://github.com/aquasecurity/trivy) + [Gitleaks](https://github.com/gitleaks/gitleaks) | Dependency CVEs, IaC misconfig, leaked secrets |
 | `commit-message` | [commitlint](https://commitlint.js.org) | Conventional Commits |
 
+commitlint's **exit status** is what decides, not its output. Rules you set to
+warning level are printed in the report and do not block the merge.
+
 ## Inputs
 
 | Input | Default | Notes |
@@ -192,6 +195,8 @@ What's inside:
 | `review-report.md` | Byte-for-byte the same report as the Job Summary — paste it into chat or a ticket |
 | `*.sarif` | Each scanner's raw data, a standard format other tools can read |
 | `commit.txt` | commitlint output, empty when every message passes |
+| `commit.failed` | Present only when commitlint exited non-zero — this is what the gate reads |
+| `commit.failed` | Present only when commitlint exited non-zero — this is what the gate reads |
 
 Note: **downloading an artifact always requires a GitHub login**, public repos
 included. So for recipients outside the team, option 1 or 3 is more practical.
@@ -205,7 +210,7 @@ many tools already understand.
 ## When the build fails
 
 - A finding at or above `fail-on`
-- A commit message violation
+- A commit message violation — an error, not a warning-level rule
 - **An enabled scanner produced no report**, or its SARIF is broken
 
 That last point deliberately keeps failing the build even under `fail-on: none`:
