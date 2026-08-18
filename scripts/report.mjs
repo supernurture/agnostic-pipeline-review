@@ -7,7 +7,7 @@
 //
 // Usage: node scripts/report.mjs reports/ --fail-on high --expect a.sarif,b.sarif
 
-import { existsSync, readFileSync, readdirSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -237,6 +237,9 @@ function main(argv) {
 
   const markdown = render({ findings, problems, commitLog, failOn, missing });
   process.stdout.write(markdown + "\n");
+  // Also written as a file so the report can be uploaded as an artifact and
+  // handed to a teammate or a tool — the Job Summary alone cannot be exported.
+  if (existsSync(dir)) writeFileSync(join(dir, "review-report.md"), markdown + "\n");
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + "\n");
   }

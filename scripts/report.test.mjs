@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Self-check for report.mjs. Run with: node scripts/report.test.mjs
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -165,6 +165,13 @@ try {
   // A finding without a location must not render an empty backticked placeholder.
   assert.doesNotMatch(r.stdout, /`—`/);
   assert.match(r.stdout, /^- gitleaks\/k$/m);
+  // The report is also written to disk so it can be uploaded as an artifact.
+  // Compare against the run that produced it — a later run overwrites the file.
+  const reportFile = join(onlyOk, "review-report.md");
+  assert.ok(existsSync(reportFile), "review-report.md must be written");
+  assert.equal(readFileSync(reportFile, "utf8").trim(), r.stdout.trim());
+  // Writing it must not make the next run treat it as an input
+  assert.equal(collect(onlyOk).findings.length, 1, "the .md must not be parsed as SARIF");
   assert.equal(run([onlyOk, "--fail-on", "critical"]).code, 1);
 
   // A missing scanner fails the build even with no findings

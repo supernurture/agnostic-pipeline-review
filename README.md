@@ -48,8 +48,8 @@ ada file lain yang perlu diubah.
 | `semgrep-version` | `1.173.0` | Versi engine. Rule-nya tetap segar — `p/ci` diambil dari registry saat run |
 | `gitleaks-version` | `8.30.1` | Versi biner yang diunduh (checksum diverifikasi) |
 
-Output `report-dir` berisi SARIF mentah tiap scanner, kalau kamu mau
-mengunggahnya sebagai artifact.
+Output `report-dir` berisi `review-report.md` dan SARIF mentah tiap scanner —
+lihat [Ekspor & bagikan](#ekspor--bagikan).
 
 ## Severity
 
@@ -118,6 +118,47 @@ Gate: gagal pada **High** ke atas.
 
 Temuan commit message masuk section terpisah — gaya penulisan commit bukan
 temuan keamanan, jadi ia tidak dipaksa masuk skala CVSS.
+
+### Ekspor & bagikan
+
+Ada tiga cara, dengan batasan akses yang berbeda-beda:
+
+**1. Kirim URL run.** Job Summary tampil di halaman workflow run:
+`https://github.com/<owner>/<repo>/actions/runs/<id>`. Kalau repo-nya publik,
+siapa pun bisa membukanya tanpa login. Paling cepat untuk dikirim ke tim.
+
+**2. Unduh sebagai artifact.** Tambahkan satu step di sisi pemakai — output
+`report-dir` sudah menyediakan direktorinya:
+
+```yaml
+      - uses: supernurture/agnostic-pipeline-review@v1
+        id: review
+        with:
+          reviews: code,vulnerability
+
+      - uses: actions/upload-artifact@v4
+        if: always()          # tanpa ini, artifact hilang justru saat review gagal
+        with:
+          name: review-report
+          path: ${{ steps.review.outputs.report-dir }}
+```
+
+Isinya:
+
+| File | Untuk apa |
+|---|---|
+| `review-report.md` | Report yang sama persis dengan Job Summary — tinggal tempel ke chat/tiket |
+| `*.sarif` | Data mentah tiap scanner, format standar yang bisa dibaca tool lain |
+| `commit.txt` | Output commitlint, kosong kalau semua pesan lolos |
+
+Catatan: **mengunduh artifact selalu butuh login GitHub**, termasuk di repo
+publik. Jadi untuk penerima di luar tim, cara 1 atau 3 lebih praktis.
+
+**3. Salin teksnya.** `review-report.md` adalah Markdown biasa berisi
+`file:baris`, rule id, dan pesan — bentuk yang langsung bisa dipakai orang
+maupun ditempel ke AI untuk minta perbaikan. Kalau AI-nya butuh konteks lebih
+(cuplikan kode, CWE, saran fix), kirim `.sarif`-nya: SARIF 2.1.0 adalah format
+standar yang sudah dimengerti banyak tool.
 
 ## Kapan build gagal
 

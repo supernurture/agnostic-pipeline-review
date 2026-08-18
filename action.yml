@@ -28,7 +28,7 @@ inputs:
 
 outputs:
   report-dir:
-    description: "Direktori berisi SARIF mentah dari tiap scanner"
+    description: "Direktori berisi review-report.md dan SARIF mentah tiap scanner"
     value: ${{ steps.parse.outputs.dir }}
 
 runs:
