@@ -76,6 +76,7 @@ warning level are printed in the report and do not block the merge.
 | `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
 | `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
 | `scope` | `changed` | `changed` gates only on files in the PR diff, `all` on the whole tree — see [Scope](#scope) |
+| `pr-comment` | `false` | Post the report as one self-updating PR comment. Needs `pull-requests: write` |
 
 The `report-dir` output holds `review-report.md` and each scanner's raw SARIF —
 see [Export & share](#export--share).
@@ -170,6 +171,12 @@ breaks the "follow the existing standard" principle this repo is built on.
 
 Written to the GitHub **Job Summary**, so it is readable straight from the
 workflow run page — no extra token, and it still works on private repos.
+
+With `pr-comment: true` the same report is also posted as a **single pull
+request comment that rewrites itself** on every run, so nobody has to open the
+run page to see it. That one needs `pull-requests: write` in the workflow's
+`permissions`. A fork's token never has it, and a missing permission is reported
+as a warning — posting a comment must not decide whether a review passes.
 
 ```markdown
 ## Review Report

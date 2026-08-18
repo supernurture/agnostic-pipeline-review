@@ -11,6 +11,8 @@ on:
 
 permissions:
   contents: read
+  # Only needed for pr-comment below. Drop it if you leave that off.
+  pull-requests: write
 
 jobs:
   review:
@@ -30,3 +32,6 @@ jobs:
           # Gate on files this PR touches; everything else is reported, not
           # dropped. Use `all` to gate on the whole tree.
           scope: changed
+          # One comment on the PR, rewritten each run, instead of only the
+          # Job Summary.
+          pr-comment: "true"

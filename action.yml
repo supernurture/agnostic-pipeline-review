@@ -40,6 +40,10 @@ inputs:
     description: "Findings the gate looks at: changed (files in the PR diff) or all"
     required: false
     default: changed
+  pr-comment:
+    description: "Post the report as one self-updating PR comment (needs pull-requests: write)"
+    required: false
+    default: "false"
 
 outputs:
   report-dir:
@@ -223,3 +227,33 @@ runs:
           rm -f "$REPORT_DIR/changed.txt"
         fi
         node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" "${args[@]}"
+
+    # Runs after Report on purpose: Report is the gate, and its exit code must
+    # not depend on whether a comment could be posted.
+    - name: Pull request comment
+      if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.pr-comment == 'true' && github.event.pull_request.number }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+        REPORT_DIR: ${{ steps.parse.outputs.dir }}
+      run: |
+        set -uo pipefail
+        file="$REPORT_DIR/review-report.md"
+        [ -s "$file" ] || exit 0
+        marker="<!-- agnostic-pipeline-review -->"
+        body="$marker"$'\n'"$(cat "$file")"
+        # Reuse our own comment so a long-running PR does not collect one per run.
+        id="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq "map(select((.body // \"\") | startswith(\"$marker\"))) | .[0].id // empty" \
+          2>/dev/null | head -1)"
+        # A missing pull-requests: write permission, or a fork PR whose token has
+        # none, must never turn into a failed review.
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" >/dev/null \
+            || echo "::warning::could not update the pull request comment"
+        else
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null \
+            || echo "::warning::could not post the pull request comment — needs 'pull-requests: write', and fork PRs cannot"
+        fi
