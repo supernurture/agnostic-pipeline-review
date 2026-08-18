@@ -20,7 +20,7 @@ jobs:
     # Without this a hung job runs for the 6 hour default before anyone notices.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: node scripts/report.test.mjs
       - run: node scripts/jscpd-to-sarif.test.mjs
       - run: bash scripts/steps.test.sh
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -124,7 +124,7 @@ jobs:
             fail-on: high
             expect: fail
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

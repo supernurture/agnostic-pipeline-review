@@ -23,7 +23,7 @@ jobs:
     # scanner install that stalled on the network.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history: commitlint reads the PR's commit range, and `scope`
           # needs both ends of the diff. Safe to drop only if you use neither.
