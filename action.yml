@@ -37,7 +37,7 @@ inputs:
     required: false
     default: latest
   scope:
-    description: "Findings the gate looks at: changed (files in the PR diff) or all"
+    description: "Findings the gate looks at: changed (lines the diff adds or edits) or all"
     required: false
     default: changed
   extra-sarif:
@@ -223,13 +223,16 @@ runs:
         EXPECT: ${{ steps.parse.outputs.expect }}
         REPORT_DIR: ${{ steps.parse.outputs.dir }}
         SCOPE: ${{ inputs.scope }}
-        BASE: ${{ github.event.pull_request.base.sha }}
-        HEAD: ${{ github.event.pull_request.head.sha }}
+        # A push has a range too — event.before is the previous tip. It is all
+        # zeroes on a branch's first push and unreachable after a force push;
+        # both make the diff fail, which reports everything.
+        BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       run: |
         set -uo pipefail
         . "$GITHUB_ACTION_PATH/scripts/steps.sh"
         args=(--fail-on "$FAIL_ON" --expect "$EXPECT")
-        if changed_files "$REPORT_DIR/changed.txt"; then
+        if changed_lines "$REPORT_DIR/changed.txt"; then
           args+=(--changed "$REPORT_DIR/changed.txt")
         fi
         node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" "${args[@]}"

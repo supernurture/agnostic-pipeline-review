@@ -52,20 +52,46 @@ check "no parent commit" "--last " "$out"
 cd "$repo" || exit 1
 out_file="$work/changed.txt"
 
-SCOPE=changed BASE="$base" HEAD=HEAD changed_files "$out_file"
+SCOPE=changed BASE="$base" HEAD=HEAD changed_lines "$out_file"
 check "a real range succeeds" "0" "$?"
-check "and lists what changed" "b.txt" "$(cat "$out_file" 2>/dev/null)"
+# b.txt is one new line, so the range is 1-1 — path, start, end, tab separated.
+check "and reports the added range" "b.txt	1	1" "$(cat "$out_file" 2>/dev/null)"
 
-SCOPE=all BASE="$base" changed_files "$out_file"
+# The point of the whole exercise: editing one line of a long file must not
+# claim the rest of it. Ten lines, then a single edit in the middle.
+printf 'l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n' > manifest.txt
+git add manifest.txt && git commit -qm "feat: manifest"
+mid="$(git rev-parse HEAD)"
+printf 'l1\nl2\nl3\nl4\nEDITED\nl6\nl7\nl8\nl9\nl10\n' > manifest.txt
+git add manifest.txt && git commit -qm "fix: one line"
+
+SCOPE=changed BASE="$mid" HEAD=HEAD changed_lines "$out_file"
+check "one edited line in ten" "manifest.txt	5	5" "$(cat "$out_file" 2>/dev/null)"
+
+# Several hunks in one file each get their own row
+printf 'X\nl2\nl3\nl4\nEDITED\nl6\nl7\nl8\nl9\nY\n' > manifest.txt
+git add manifest.txt && git commit -qm "fix: two more lines"
+SCOPE=changed BASE="$mid" HEAD=HEAD changed_lines "$out_file"
+check "multiple hunks" "manifest.txt	1	1 manifest.txt	5	5 manifest.txt	10	10" "$(tr '\n' ' ' < "$out_file" | sed 's/ $//')"
+
+SCOPE=all BASE="$base" changed_lines "$out_file"
 check "scope: all does not scope" "1" "$?"
 check "and leaves no stale list" "no" "$(exists "$out_file")"
 
-SCOPE=changed BASE='' changed_files "$out_file"
+SCOPE=changed BASE='' changed_lines "$out_file"
 check "no base sha means no scoping" "1" "$?"
 
-SCOPE=changed BASE=deadbeef changed_files "$out_file"
+SCOPE=changed BASE=deadbeef changed_lines "$out_file"
 check "an unreachable base fails open" "1" "$?"
 check "without leaving a partial list" "no" "$(exists "$out_file")"
+
+# A range against itself has no added lines. That must fail open rather than
+# scope to nothing — a parsing regression looks exactly the same from here, and
+# silently suppressing every finding while staying green is the one outcome
+# this pipeline must never produce.
+SCOPE=changed BASE=HEAD HEAD=HEAD changed_lines "$out_file"
+check "an empty diff fails open" "1" "$?"
+check "leaving no empty list behind" "no" "$(exists "$out_file")"
 
 # --- collect_extra_sarif ---
 src="$work/src"

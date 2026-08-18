@@ -91,19 +91,60 @@ assert.equal(gate([{ severity: "Critical" }], "High"), true);
 assert.equal(gate([{ severity: "Critical" }], "none"), false);
 assert.equal(gate([], "Info"), false);
 
-// --- Scoping to the files a change touches ---
+// --- Scoping to the lines a change touches ---
 {
   const f = (location) => ({ severity: "Critical", location });
-  const changed = new Set(["src/db.py"]);
-  assert.equal(scopeTo([f("src/db.py:7")], changed).length, 1);
-  assert.equal(scopeTo([f("src/other.py:7")], changed).length, 0);
-  // No line number, and no location at all
+  const ranges = (rows) => new Map(rows);
+  const changed = ranges([["src/db.py", [[5, 9]]]]);
+
+  assert.equal(scopeTo([f("src/db.py:7")], changed).length, 1, "inside the range");
+  assert.equal(scopeTo([f("src/db.py:5")], changed).length, 1, "first line of the range");
+  assert.equal(scopeTo([f("src/db.py:9")], changed).length, 1, "last line of the range");
+  // The whole point: the file changed, but this line did not.
+  assert.equal(scopeTo([f("src/db.py:4")], changed).length, 0, "just before the range");
+  assert.equal(scopeTo([f("src/db.py:10")], changed).length, 0, "just after the range");
+  assert.equal(scopeTo([f("src/other.py:7")], changed).length, 0, "a file that did not change");
+
+  // Several hunks in one file
+  const twoHunks = ranges([["a.py", [[1, 2], [40, 42]]]]);
+  assert.deepEqual(
+    scopeTo([f("a.py:2"), f("a.py:20"), f("a.py:41")], twoHunks).map((x) => x.location),
+    ["a.py:2", "a.py:41"],
+  );
+
+  // No line number falls back to the file; no location at all always stays
   assert.equal(scopeTo([f("src/db.py")], changed).length, 1);
+  assert.equal(scopeTo([f("src/nope.py")], changed).length, 0);
   assert.equal(scopeTo([f(null)], changed).length, 1, "an unlocatable finding must not be hidden");
   // A colon inside the path must not be mistaken for a line number
-  assert.equal(scopeTo([f("a:b.py")], new Set(["a:b.py"])).length, 1);
+  assert.equal(scopeTo([f("a:b.py")], ranges([["a:b.py", [[1, 1]]]])).length, 1);
   // Without a change list nothing is filtered
   assert.equal(scopeTo([f("src/other.py:7")], null).length, 1);
+}
+
+// --- Reading the ranges the action writes ---
+{
+  const dir = mkdtempSync(join(tmpdir(), "apr-ranges-"));
+  const write = (text) => {
+    const p = join(dir, "changed.txt");
+    writeFileSync(p, text);
+    return p;
+  };
+  assert.deepEqual(readChanged(write("a.py\t1\t3\nb.py\t7\t7\n")), new Map([
+    ["a.py", [[1, 3]]],
+    ["b.py", [[7, 7]]],
+  ]));
+  assert.deepEqual(readChanged(write("a.py\t1\t2\na.py\t9\t9\n")), new Map([["a.py", [[1, 2], [9, 9]]]]));
+  // Rows that cannot be trusted are skipped rather than guessed at
+  assert.equal(readChanged(write("a.py\nb.py\t1\n\ta\t1\na.py\tx\t3\na.py\t0\t2\na.py\t9\t4\n")), null);
+  assert.deepEqual(readChanged(write("junk\na.py\t2\t4\n")), new Map([["a.py", [[2, 4]]]]));
+  // Nothing usable means no scoping at all: hiding every finding because the
+  // parsing regressed must never come out as a green build.
+  assert.equal(readChanged(write("")), null);
+  assert.equal(readChanged(write("\n   \n")), null);
+  assert.equal(readChanged(join(dir, "absent.txt")), null);
+  assert.equal(readChanged(""), null);
+  rmSync(dir, { recursive: true, force: true });
 }
 
 // --- Reading a directory: broken SARIF is reported, not swallowed ---
@@ -205,14 +246,44 @@ try {
   }));
   const changedFile = join(scoped, "changed.txt");
 
-  writeFileSync(changedFile, "other.py\n");
+  writeFileSync(changedFile, "other.py\t1\t9\n");
   r = run([scoped, "--fail-on", "critical", "--changed", changedFile]);
   assert.equal(r.code, 0, "a finding outside the diff must not gate");
   assert.match(r.stdout, /Not listed: 1 finding/, "hidden findings must still be announced");
-  assert.match(r.stdout, /on changed files only/);
+  assert.match(r.stdout, /on changed lines only/);
 
-  writeFileSync(changedFile, "db.py\n");
+  // Same file, but the change is nowhere near the finding on line 7.
+  writeFileSync(changedFile, "db.py\t40\t42\n");
+  r = run([scoped, "--fail-on", "critical", "--changed", changedFile]);
+  assert.equal(r.code, 0, "a touched file does not drag in its whole backlog");
+  assert.match(r.stdout, /Not listed: 1 finding/);
+
+  writeFileSync(changedFile, "db.py\t5\t9\n");
   assert.equal(run([scoped, "--fail-on", "critical", "--changed", changedFile]).code, 1);
+
+  // The case that started this: a manifest gains one line, and every CVE
+  // already recorded against that file must stay out of the report.
+  const manifest = mkdtempSync(join(tmpdir(), "apr-manifest-"));
+  writeFileSync(join(manifest, "trivy.sarif"), JSON.stringify({
+    runs: [{
+      tool: { driver: { name: "Trivy" } },
+      results: Array.from({ length: 40 }, (_, i) => ({
+        ruleId: `CVE-2024-${1000 + i}`,
+        properties: { "security-severity": "7.5" },
+        message: { text: "vulnerable dependency" },
+        locations: [{
+          physicalLocation: { artifactLocation: { uri: "requirements.txt" }, region: { startLine: i + 1 } },
+        }],
+      })),
+    }],
+  }));
+  const manifestChanged = join(manifest, "changed.txt");
+  writeFileSync(manifestChanged, "requirements.txt\t12\t12\n");
+  r = run([manifest, "--fail-on", "high", "--changed", manifestChanged]);
+  assert.equal(r.code, 1, "the CVE on the added line still gates");
+  assert.match(r.stdout, /\| \*\*Total\*\* \| \*\*1\*\* \|/, "one line touched, one CVE reported");
+  assert.match(r.stdout, /Not listed: 39 finding/);
+  rmSync(manifest, { recursive: true, force: true });
 
   // An empty or missing list must fail open — scoping to nothing would hide
   // every finding in the repo.
@@ -250,11 +321,19 @@ try {
 
   // Scoping applies here too, and the hidden ones are still announced
   const styleChanged = join(styled, "changed.txt");
-  writeFileSync(styleChanged, "other.py\n");
+  writeFileSync(styleChanged, "other.py\t1\t9\n");
   r = run([styled, "--fail-on", "critical", "--changed", styleChanged]);
   assert.equal(r.code, 0);
   assert.doesNotMatch(r.stdout, /### Coding Standard/);
   assert.match(r.stdout, /Not listed: 1 finding/);
+
+  // The style finding is on app.py:10, so a change to app.py:1-2 must not show it
+  writeFileSync(styleChanged, "app.py\t1\t2\n");
+  assert.doesNotMatch(
+    run([styled, "--fail-on", "critical", "--changed", styleChanged]).stdout,
+    /### Coding Standard/,
+    "style findings are scoped by line too",
+  );
   rmSync(styled, { recursive: true, force: true });
 
   // A missing scanner fails the build even with no findings

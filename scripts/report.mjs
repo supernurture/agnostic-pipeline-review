@@ -169,21 +169,45 @@ export function missingReports(dir, expected) {
 }
 
 /**
- * Paths from `git diff --name-only`, or null when there is nothing to scope to.
- * An empty file counts as null: scoping to zero files would hide everything,
- * and a security report must fail open.
+ * Changed line ranges written by the action as `path<TAB>start<TAB>end` rows,
+ * as a Map of path to ranges — or null when there is nothing to scope to.
+ *
+ * A file with no usable row counts as null. Scoping to nothing would hide every
+ * finding, so if this parsing ever regresses it must fail open rather than turn
+ * a whole report into a silent green build.
  */
 export function readChanged(path) {
   if (!path || !existsSync(path)) return null;
-  const lines = readFileSync(path, "utf8").split("\n").map((s) => s.trim()).filter(Boolean);
-  return lines.length ? new Set(lines) : null;
+  const ranges = new Map();
+  for (const row of readFileSync(path, "utf8").split("\n")) {
+    const [file, start, end] = row.split("\t");
+    const from = Number(start);
+    const to = Number(end);
+    if (!file || !Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from) continue;
+    if (!ranges.has(file)) ranges.set(file, []);
+    ranges.get(file).push([from, to]);
+  }
+  return ranges.size ? ranges : null;
 }
 
-/** Keep only findings in files this change touches. */
+/**
+ * Keep only findings the change actually touches — by line, not just by file.
+ * Scoping by filename alone means one new dependency surfaces every CVE already
+ * in the manifest, which is the fastest way to make a report unreadable.
+ */
 export function scopeTo(findings, changed) {
   if (!changed) return findings;
-  // A finding with no location cannot be shown to be pre-existing, so it stays.
-  return findings.filter((f) => !f.location || changed.has(f.location.replace(/:\d+$/, "")));
+  return findings.filter((f) => {
+    // Nothing to place it by: it cannot be shown to be pre-existing, so it stays.
+    if (!f.location) return true;
+    const at = /:(\d+)$/.exec(f.location);
+    const spans = changed.get(at ? f.location.slice(0, -at[0].length) : f.location);
+    if (!spans) return false;
+    // A location that names no line falls back to the file.
+    if (!at) return true;
+    const line = Number(at[1]);
+    return spans.some(([from, to]) => line >= from && line <= to);
+  });
 }
 
 export function counts(findings) {
@@ -230,7 +254,7 @@ export function render({
   for (const p of problems) out.push(`> ${p}`, "");
   for (const n of notes) out.push(`> ${n}`, "");
   // Never drop findings without saying so.
-  if (skipped) out.push(`> Not listed: ${skipped} finding(s) in files this change does not touch.`, "");
+  if (skipped) out.push(`> Not listed: ${skipped} finding(s) on lines this change does not touch.`, "");
 
   out.push("| Severity | Count |", "|---|---:|");
   for (const s of SEVERITIES) out.push(`| ${s} | ${c[s]} |`);
@@ -238,7 +262,7 @@ export function render({
   out.push(
     failOn === "none"
       ? "Gate: no severity fails the build."
-      : `Gate: fails at **${failOn}** and above${skipped === null ? "" : ", on changed files only"}.`,
+      : `Gate: fails at **${failOn}** and above${skipped === null ? "" : ", on changed lines only"}.`,
     "",
   );
 
@@ -271,7 +295,7 @@ export function render({
   }
 
   if (!findings.length && !style.length && !missing.length && !problems.length) {
-    out.push(skipped ? "No findings in the files this change touches." : "No findings.", "");
+    out.push(skipped ? "No findings on the lines this change touches." : "No findings.", "");
   }
   return out.join("\n");
 }

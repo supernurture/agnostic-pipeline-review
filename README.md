@@ -88,8 +88,8 @@ it is merged into the same report:
 Anything that writes SARIF works — Ruff natively, ESLint through
 `@microsoft/eslint-formatter-sarif`, PMD with `-f sarif`, Clippy through
 `clippy-sarif`. Separate several with commas, spaces, or newlines; globs are
-allowed. A path matching
-nothing fails the run, the same rule the built-in scanners are held to.
+allowed. A path matching nothing fails the run, the same rule the built-in
+scanners are held to.
 
 These land in **their own section, off the CVSS scale**, for the same reason
 commit messages do: style is not a security finding, and inventing a severity
@@ -98,7 +98,7 @@ a linter to block a merge, let its own step fail; that mechanism already exists.
 A broken or empty SARIF still fails, though: `ruff check … > ruff.sarif` leaves
 an empty file when ruff itself crashes, and a linter that silently did not run
 must not pass for clean.
-`scope` still applies, so they are limited to the changed files like the rest.
+`scope` still applies, so they are limited to the changed lines like the rest.
 
 #### Duplication
 
@@ -141,7 +141,7 @@ knows its linter.
 | `gitleaks-version` | `8.30.1` | Version of the binary that gets downloaded (checksum verified) |
 | `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
 | `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
-| `scope` | `changed` | `changed` gates only on files in the PR diff, `all` on the whole tree — see [Scope](#scope) |
+| `scope` | `changed` | `changed` gates only on lines the diff adds or edits, `all` on the whole tree — see [Scope](#scope) |
 | `extra-sarif` | — | SARIF from your own linters — see [Coding standard](#coding-standard) |
 | `pr-comment` | `false` | Post the report as one self-updating PR comment. Needs `pull-requests: write` |
 
@@ -150,12 +150,12 @@ see [Export & share](#export--share).
 
 ### Scope
 
-By default the gate looks only at findings in files the pull request actually
-touches. Everything else is still counted and announced — never dropped in
-silence:
+By default the gate looks only at findings on **lines the change adds or edits**
+— not merely at files it touches. Everything else is still counted and
+announced, never dropped in silence:
 
 ```
-> Not listed: 183 finding(s) in files this change does not touch.
+> Not listed: 183 finding(s) on lines this change does not touch.
 ```
 
 This is what makes the pipeline usable on a repository that did not start with
@@ -164,10 +164,25 @@ request red on day one, and by day three nobody reads the report at all. The
 diff is the baseline, so there is no baseline file to maintain and nothing to
 keep in sync.
 
-It needs both ends of the pull request range in the local clone — that is what
-`fetch-depth: 0` buys. Outside a pull request there is no range, and if the diff
-cannot be produced for any reason the report covers everything: hiding findings
-because a command failed would be the worst possible default here.
+**Lines rather than files, because filenames are too coarse to help.** Every
+dependency CVE is reported against the manifest, so adding one package would
+otherwise surface every CVE already in the project — one line changed, forty
+findings, all of them gating. Touching a single line of a long legacy file would
+drag that file's entire backlog along with it. Line ranges are also the
+established convention here rather than something invented for this action:
+reviewdog's `added` filter mode and golangci-lint's `--new-from-rev` scope the
+same way.
+
+Two deliberate exceptions: a finding with no location at all is always kept —
+nothing places it, so nothing proves it pre-existing — and a finding that names
+a file but no line falls back to matching the file.
+
+It needs both ends of the range in the local clone, which is what
+`fetch-depth: 0` buys. A pull request supplies the range from its base; a push
+uses the previous tip. If the diff cannot be produced for any reason — a
+branch's first push, a force push, a shallow clone — the report covers
+everything. Hiding findings because a command failed would be the worst possible
+default here, so an empty range fails open rather than scoping to nothing.
 
 Use `scope: all` when you want the whole tree gated, for example on a nightly
 run.
@@ -301,7 +316,7 @@ What's inside:
 | `*.sarif` | Each scanner's raw data, a standard format other tools can read |
 | `commit.txt` | commitlint output, empty when every message passes |
 | `commit.failed` | Present only when commitlint exited non-zero — this is what the gate reads |
-| `changed.txt` | The PR's changed files, when `scope: changed` had a diff to work from |
+| `changed.txt` | The changed line ranges, when `scope: changed` had a diff to work from |
 | `style/` | The `extra-sarif` files you passed in |
 
 Note: **downloading an artifact always requires a GitHub login**, public repos
