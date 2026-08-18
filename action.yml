@@ -101,6 +101,7 @@ runs:
       uses: aquasecurity/setup-trivy@v0.3.1
       with:
         version: ${{ inputs.trivy-version }}
+        cache: true
 
     - name: Vulnerability review — Trivy
       if: steps.parse.outputs.run_vuln == 'true'
