@@ -48,6 +48,13 @@ inputs:
     description: "Post the report as one self-updating PR comment (needs pull-requests: write)"
     required: false
     default: "false"
+  # A name rather than a boolean: artifact names must be unique within a run,
+  # so anyone calling this action twice — a matrix, two review sets — needs to
+  # say which is which. A boolean would only have grown a second input.
+  upload-artifact:
+    description: "Upload report-dir under this artifact name. Empty means no upload"
+    required: false
+    default: ""
 
 outputs:
   report-dir:
@@ -272,3 +279,17 @@ runs:
           gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" >/dev/null \
             || echo "::warning::could not post the pull request comment — needs 'pull-requests: write', and fork PRs cannot"
         fi
+
+    # Last, and always. The report is worth keeping most when the gate has just
+    # failed — and Report is the step that fails, so a plain `uses` here would
+    # skip exactly the run worth reading. Doing it inside the action also
+    # removes the two ways the equivalent consumer-side step goes wrong:
+    # forgetting `id:` uploads an empty artifact, forgetting `if: always()`
+    # loses it on failure. Neither is possible from here.
+    - name: Upload the report
+      if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.upload-artifact != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.upload-artifact }}
+        path: ${{ steps.parse.outputs.dir }}
+        if-no-files-found: ignore

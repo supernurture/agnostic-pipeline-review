@@ -144,6 +144,7 @@ knows its linter.
 | `scope` | `changed` | `changed` gates only on lines the diff adds or edits, `all` on the whole tree — see [Scope](#scope) |
 | `extra-sarif` | — | SARIF from your own linters — see [Coding standard](#coding-standard) |
 | `pr-comment` | `false` | Post the report as one self-updating PR comment. Needs `pull-requests: write` |
+| `upload-artifact` | — | Upload `report-dir` under this artifact name. Empty means no upload |
 
 The `report-dir` output holds `review-report.md` and each scanner's raw SARIF —
 see [Export & share](#export--share).
@@ -292,20 +293,34 @@ Three ways, each with different access constraints:
 `https://github.com/<owner>/<repo>/actions/runs/<id>`. On a public repo anyone
 can open it without logging in. Fastest thing to send to your team.
 
-**2. Download it as an artifact.** Add one step on the consumer side — the
-`report-dir` output already gives you the directory:
+**2. Download it as an artifact.** Name one and it is uploaded for you:
 
 ```yaml
       - uses: supernurture/agnostic-pipeline-review@v1
-        id: review
+        with:
+          reviews: code,vulnerability
+          upload-artifact: review-report
+```
+
+A name rather than a boolean because artifact names must be unique within a
+run — calling this action twice, or from a matrix, needs one name per call
+(`review-${{ matrix.reviews }}`). Leave it empty and nothing is uploaded.
+
+If you need `retention-days`, `compression-level`, or a narrower path, keep
+doing it yourself — the `report-dir` output is still there:
+
+```yaml
+      - uses: supernurture/agnostic-pipeline-review@v1
+        id: review           # without this, report-dir is empty and so is the artifact
         with:
           reviews: code,vulnerability
 
       - uses: actions/upload-artifact@v4
-        if: always()          # without this the artifact is lost exactly when the review fails
+        if: always()         # without this the artifact is lost exactly when the review fails
         with:
           name: review-report
           path: ${{ steps.review.outputs.report-dir }}
+          retention-days: 14
 ```
 
 What's inside:

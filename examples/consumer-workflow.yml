@@ -34,9 +34,12 @@ jobs:
           # Plug in / unplug reviews on this line.
           reviews: code,vulnerability,commit-message
           fail-on: high
-          # Gate on files this PR touches; everything else is reported, not
-          # dropped. Use `all` to gate on the whole tree.
+          # Gate on the lines this PR adds or edits; everything else is
+          # reported, not dropped. Use `all` to gate on the whole tree.
           scope: changed
           # One comment on the PR, rewritten each run, instead of only the
           # Job Summary.
           pr-comment: "true"
+          # Keep the report as a downloadable artifact. A name, not a boolean:
+          # artifact names have to be unique within a run.
+          upload-artifact: review-report

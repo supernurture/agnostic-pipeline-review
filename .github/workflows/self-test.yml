@@ -62,6 +62,9 @@ jobs:
           # diff, so the default scope would hide the one finding this job
           # exists to look for. This tests the copy step, not the scoping.
           scope: all
+          # Smoke test for the upload step — a bad path or a malformed name
+          # fails this job rather than being discovered by a consumer.
+          upload-artifact: extra-sarif-report
 
       - name: Assert
         env:
