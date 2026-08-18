@@ -141,8 +141,12 @@ runs:
         tmp="$(mktemp -d)"
         base="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}"
         tarball="gitleaks_${VERSION}_linux_x64.tar.gz"
-        curl -sSfL -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::failed to download gitleaks v${VERSION}"; exit 1; }
-        curl -sSfL -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::failed to download the gitleaks checksums"; exit 1; }
+        # A composite action cannot give its steps a timeout-minutes, so curl
+        # gets its own bounds: a stalled-but-open connection would otherwise
+        # hang until the job's 6 hour default kills it.
+        get() { curl -sSfL --connect-timeout 20 --max-time 300 "$@"; }
+        get -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::failed to download gitleaks v${VERSION}"; exit 1; }
+        get -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::failed to download the gitleaks checksums"; exit 1; }
         # A binary from the internet: the checksum must be verified, and a
         # mismatch is fatal. awk matches the filename exactly; grep would treat
         # the dots in the tarball name as wildcards.
