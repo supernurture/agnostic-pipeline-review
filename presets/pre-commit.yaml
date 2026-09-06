@@ -13,7 +13,7 @@ repos:
 
   # --- code review ---
   - repo: https://github.com/semgrep/pre-commit
-    rev: v1.173.0
+    rev: v1.176.0
     hooks:
       - id: semgrep
         args: ["--config", "p/ci", "--error", "--skip-unknown-extensions"]
