@@ -71,6 +71,14 @@ git add manifest.txt && git commit -qm "fix: two more lines"
 SCOPE=changed BASE="$mid" HEAD=HEAD changed_lines "$out_file"
 check "multiple hunks" "manifest.txt	1	1 manifest.txt	5	5 manifest.txt	10	10" "$(tr '\n' ' ' < "$out_file" | sed 's/ $//')"
 
+# An added line reading `++ b/x` renders as `+++ b/x` in the diff body. Read as
+# a file header it would retarget every hunk after it, and the findings on
+# those lines would drop out of the gate without a word.
+printf 'l1\n++ b/fake.txt\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nPOISON\n' > manifest.txt
+git add manifest.txt && git commit -qm "fix: a line that looks like a header"
+SCOPE=changed BASE="$mid" HEAD=HEAD changed_lines "$out_file"
+check "a body line that looks like a header" "manifest.txt	2	2 manifest.txt	10	10" "$(tr '\n' ' ' < "$out_file" | sed 's/ $//')"
+
 SCOPE=all BASE="$base" changed_lines "$out_file"
 check "scope: all does not scope" "1" "$?"
 check "and leaves no stale list" "no" "$(exists "$out_file")"

@@ -43,8 +43,12 @@ changed_lines() {
     return 1
   }
   printf '%s\n' "$diff" | awk '
+    # A header only when it follows `--- `: an added line reading `++ b/x`
+    # shows up as `+++ b/x` in the body, and would retarget every later hunk.
+    /^--- / { hdr = 1; next }
     # `+++ /dev/null` is a deletion and has no added lines to attribute.
-    /^\+\+\+ / { file = (substr($0, 1, 6) == "+++ b/") ? substr($0, 7) : ""; next }
+    /^\+\+\+ / && hdr { file = (substr($0, 1, 6) == "+++ b/") ? substr($0, 7) : ""; hdr = 0; next }
+    { hdr = 0 }
     /^@@ / && file != "" {
       # @@ -old,len +new,len @@ — only the + side names lines that now exist.
       match($0, /\+[0-9]+(,[0-9]+)?/)
