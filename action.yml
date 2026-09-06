@@ -23,7 +23,7 @@ inputs:
   semgrep-version:
     description: "Semgrep version to install"
     required: false
-    default: "1.173.0"
+    default: "1.176.0"
   gitleaks-version:
     description: "Gitleaks version to download"
     required: false

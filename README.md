@@ -106,7 +106,9 @@ must not pass for clean.
 No linter finds duplicated code, and no free clone detector emits SARIF. So
 there is a converter — [`scripts/jscpd-to-sarif.mjs`](scripts/jscpd-to-sarif.mjs),
 about 90 lines — for [jscpd](https://github.com/kucherenko/jscpd), which is MIT
-and covers 150+ formats:
+and covers 150+ formats. Copy it into your own repository first — the action
+runs on the runner, your `run:` steps run in your checkout, so nothing of this
+repo is on disk there:
 
 ```yaml
       - run: |
@@ -138,7 +140,7 @@ knows its linter.
 | `reviews` | — | Required. Comma-separated. An unknown name fails the run. |
 | `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `info`, or `none` |
 | `semgrep-config` | `p/ci` | Semgrep ruleset, see [semgrep.dev/r](https://semgrep.dev/r) |
-| `semgrep-version` | `1.173.0` | Engine version. The rules stay fresh — `p/ci` is pulled from the registry at run time |
+| `semgrep-version` | `1.176.0` | Engine version. The rules stay fresh — `p/ci` is pulled from the registry at run time |
 | `gitleaks-version` | `8.30.1` | Version of the binary that gets downloaded (checksum verified) |
 | `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
 | `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
