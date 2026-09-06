@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 // Merge SARIF from several scanners into a single severity-ranked report.
-//
-// Severity follows existing standards rather than a home-grown scale:
-// SARIF 2.1.0 for the format, and properties.security-severity (a CVSS score)
-// for the Critical/High/Medium/Low/Info bands.
+// Bands come from properties.security-severity (a CVSS score), not from a
+// home-grown scale.
 //
 // Usage: node scripts/report.mjs reports/ --fail-on high --expect a.sarif,b.sarif
 //                                         [--changed changed.txt]
@@ -15,8 +13,8 @@ import { parseArgs } from "node:util";
 
 export const SEVERITIES = ["Critical", "High", "Medium", "Low", "Info"];
 
-// Fallback for SARIF that carries no security-severity at all. Only add an
-// entry here when the new scanner genuinely isn't security-aware.
+// For SARIF that carries no security-severity at all. Only add a scanner here
+// when it genuinely isn't security-aware.
 const TOOL_FALLBACK = {
   // A leaked live credential is critical; gitleaks does not assign a score.
   gitleaks: () => "Critical",
@@ -26,14 +24,13 @@ const TOOL_FALLBACK = {
 
 const LEVEL_FALLBACK = { error: "High", warning: "Medium", note: "Info", none: "Info" };
 
-// Tools that normally do carry security-severity. When one of them stops, every
-// band it produces shifts to TOOL_FALLBACK and the gate changes without any
-// error — so the report says it out loud. Gitleaks is absent on purpose: it
-// never scores, and its fallback is the intended behaviour.
+// Tools that normally do carry security-severity. When one stops, its bands
+// shift to TOOL_FALLBACK and the gate moves with no error anywhere — so the
+// report says so. Gitleaks never scores by design, hence its absence.
 const EXPECT_SCORE = ["trivy", "semgrep"];
 
-// Keys come from a SARIF file, so never index the map bare: a level of
-// "constructor" would return a function instead of the default.
+// Keys come from a file: indexing bare, a level of "constructor" returns a
+// function instead of the default.
 function pick(map, key, dflt) {
   return Object.hasOwn(map, key) ? map[key] : dflt;
 }
@@ -104,9 +101,8 @@ function message(result) {
 }
 
 export function collect(dir) {
-  // ponytail: no cross-tool dedup. Gitleaks and Semgrep can flag the same
-  // secret twice. Add a (location, normalized message) key if the duplicates
-  // start getting in the way.
+  // ponytail: no cross-tool dedup — Gitleaks and Semgrep can flag one secret
+  // twice. Add a (location, message) key if the duplicates get in the way.
   const findings = [];
   const problems = [];
   const notes = [];
@@ -171,10 +167,8 @@ export function missingReports(dir, expected) {
 /**
  * Changed line ranges written by the action as `path<TAB>start<TAB>end` rows,
  * as a Map of path to ranges — or null when there is nothing to scope to.
- *
- * A file with no usable row counts as null. Scoping to nothing would hide every
- * finding, so if this parsing ever regresses it must fail open rather than turn
- * a whole report into a silent green build.
+ * No usable row counts as null: scoping to nothing would hide every finding,
+ * so a parsing regression must fail open rather than go silently green.
  */
 export function readChanged(path) {
   if (!path || !existsSync(path)) return null;
@@ -191,14 +185,13 @@ export function readChanged(path) {
 }
 
 /**
- * Keep only findings the change actually touches — by line, not just by file.
- * Scoping by filename alone means one new dependency surfaces every CVE already
- * in the manifest, which is the fastest way to make a report unreadable.
+ * Keep only findings the change touches — by line, not by file. By filename
+ * alone, one new dependency surfaces every CVE already in the manifest.
  */
 export function scopeTo(findings, changed) {
   if (!changed) return findings;
   return findings.filter((f) => {
-    // Nothing to place it by: it cannot be shown to be pre-existing, so it stays.
+    // Nothing to place it by, so it cannot be shown to be pre-existing.
     if (!f.location) return true;
     const at = /:(\d+)$/.exec(f.location);
     const spans = changed.get(at ? f.location.slice(0, -at[0].length) : f.location);
@@ -223,12 +216,10 @@ export function gate(findings, failOn) {
   return findings.some((f) => blocking.has(f.severity));
 }
 
-// The GitHub Job Summary is capped at 1 MiB — truncate the list ourselves so
-// GitHub does not cut the report off mid-way.
+// The Job Summary is capped at 1 MiB; truncate here rather than be cut mid-way.
 const MAX_PER_BAND = 50;
 
-// Findings from the consumer's own linters live here, in their own section and
-// off the CVSS scale: coding style is not a security finding.
+// The consumer's own linters, in their own section and off the CVSS scale.
 export const STYLE_DIR = "style";
 
 function pushItems(out, items, label) {
@@ -276,8 +267,7 @@ export function render({
 
   if (style.length) {
     out.push(`### Coding Standard (${style.length})`, "");
-    // Off the CVSS scale for the same reason the commit message section is:
-    // style is not a security finding, and it does not move the gate.
+    // Off the CVSS scale: style is not a security finding and does not gate.
     pushItems(out, style, "findings");
     out.push("");
   }
@@ -328,46 +318,43 @@ function main(argv) {
   const all = collect(dir);
   const styleAll = collect(join(dir, STYLE_DIR));
   const problems = [...all.problems, ...styleAll.problems];
-  // Security scanners only: a style linter is not expected to carry
-  // security-severity, so the same warning about it would be pure noise.
+  // Security scanners only: a style linter is not expected to score.
   const { notes } = all;
   const changed = readChanged(values.changed);
   const findings = scopeTo(all.findings, changed);
   const style = scopeTo(styleAll.findings, changed);
-  // null means "not scoped at all", which reads differently from "scoped, none hidden".
+  // null is "not scoped at all", not "scoped, none hidden".
   const skipped = changed
     ? all.findings.length - findings.length + styleAll.findings.length - style.length
     : null;
   const missing = missingReports(dir, expected);
   const commitPath = join(dir, "commit.txt");
   const commitLog = existsSync(commitPath) ? readFileSync(commitPath, "utf8").trim() : null;
-  // Written by the commitlint step when it exited non-zero. Output on its own is
-  // not a verdict: commitlint prints warning-level rules and still exits 0.
+  // Written by the commitlint step on a non-zero exit. Output alone is not a
+  // verdict: commitlint prints warnings and still exits 0.
   const commitFailed = existsSync(join(dir, "commit.failed"));
 
   const markdown = render({
     findings, style, problems, notes, commitLog, commitFailed, failOn, missing, skipped,
   });
   process.stdout.write(markdown + "\n");
-  // Also written as a file so the report can be uploaded as an artifact and
-  // handed to a teammate or a tool — the Job Summary alone cannot be exported.
+  // Also a file, so the report can be uploaded as an artifact — the Job
+  // Summary cannot be exported.
   if (existsSync(dir)) writeFileSync(join(dir, "review-report.md"), markdown + "\n");
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + "\n");
   }
 
-  // A scanner that failed to run is an infrastructure error, not "no findings",
-  // so it fails the build even under --fail-on none.
+  // A scanner that failed to run is an error, not "no findings", so it fails
+  // even under --fail-on none.
   if (missing.length || problems.length) return 1;
   if (commitFailed) return 1;
   return gate(findings, failOn) ? 1 : 0;
 }
 
-// pathToFileURL, not `file://${argv[1]}`: the latter never matches on Windows
-// and is wrong for paths containing spaces.
+// pathToFileURL: `file://${argv[1]}` never matches on Windows or with spaces.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  // exitCode, not exit(): process.exit() does not wait for stdout to flush, so
-  // a long report piped somewhere would be cut off.
+  // exitCode, not exit(): exit() would cut a long piped report off mid-flush.
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (err) {

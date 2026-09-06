@@ -19,9 +19,7 @@ inputs:
     description: "Semgrep ruleset (see semgrep.dev/r)"
     required: false
     default: p/ci
-  # The engine version is pinned for reproducible results. The rules stay
-  # fresh regardless: --config p/ci pulls the ruleset from the registry at run
-  # time.
+  # Pinned for reproducible runs; --config still pulls the rules at run time.
   semgrep-version:
     description: "Semgrep version to install"
     required: false
@@ -30,9 +28,8 @@ inputs:
     description: "Gitleaks version to download"
     required: false
     default: "8.30.1"
-  # Trivy and commitlint default to `latest` on purpose: for those two the
-  # version *is* the freshness — the CVE database and the rule defaults. Pin
-  # them to reproduce an old run or to roll back a bad release.
+  # `latest` on purpose: for these two the version is the freshness — the CVE
+  # database and the rule defaults. Pin to reproduce an old run.
   trivy-version:
     description: "Trivy version to install"
     required: false
@@ -53,9 +50,7 @@ inputs:
     description: "Post the report as one self-updating PR comment (needs pull-requests: write)"
     required: false
     default: "false"
-  # A name rather than a boolean: artifact names must be unique within a run,
-  # so anyone calling this action twice — a matrix, two review sets — needs to
-  # say which is which. A boolean would only have grown a second input.
+  # A name, not a boolean: artifact names must be unique within a run.
   upload-artifact:
     description: "Upload report-dir under this artifact name. Empty means no upload"
     required: false
@@ -69,8 +64,7 @@ outputs:
 runs:
   using: composite
   steps:
-    # Review names are validated up front: a typo must fail loudly rather than
-    # silently skip a review.
+    # Validated up front: a typo must fail loudly, not skip a review.
     - name: Validate requested reviews
       id: parse
       shell: bash
@@ -119,9 +113,8 @@ runs:
       run: |
         set -uo pipefail
         pipx install "semgrep==${SEMGREP_VERSION}" >/dev/null
-        # Findings are not a reason to stop — report.mjs is the gate.
-        # If the install failed, no SARIF is written and the report catches it
-        # as "scanner produced no report".
+        # report.mjs is the gate; a failed install surfaces there as a missing
+        # report.
         semgrep scan --config "$SEMGREP_CONFIG" --sarif \
           --output "$REPORT_DIR/semgrep.sarif" --metrics off --quiet . || true
 
@@ -153,25 +146,19 @@ runs:
         tmp="$(mktemp -d)"
         base="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}"
         tarball="gitleaks_${VERSION}_linux_x64.tar.gz"
-        # A composite action cannot give its steps a timeout-minutes, so curl
-        # gets its own bounds: a stalled-but-open connection would otherwise
-        # hang until the job's 6 hour default kills it.
+        # Composite steps take no timeout-minutes, so curl carries its own.
         get() { curl -sSfL --connect-timeout 20 --max-time 300 "$@"; }
         get -o "$tmp/$tarball" "$base/$tarball" || { echo "::error::failed to download gitleaks v${VERSION}"; exit 1; }
         get -o "$tmp/checksums.txt" "$base/gitleaks_${VERSION}_checksums.txt" || { echo "::error::failed to download the gitleaks checksums"; exit 1; }
-        # A binary from the internet: the checksum must be verified, and a
-        # mismatch is fatal. awk matches the filename exactly; grep would treat
-        # the dots in the tarball name as wildcards.
+        # A mismatch is fatal. awk matches the name exactly; grep would read
+        # the dots as wildcards.
         want="$(awk -v f="$tarball" '$2 == f { print $1 }' "$tmp/checksums.txt")"
         [ -n "$want" ] || { echo "::error::no checksum for $tarball in the manifest"; exit 1; }
         ( cd "$tmp" && echo "$want  $tarball" | sha256sum -c - ) \
           || { echo "::error::gitleaks checksum mismatch"; exit 1; }
         tar -xzf "$tmp/$tarball" -C "$tmp" gitleaks
-        # `dir` scans the working tree; the report is written outside the repo
-        # so it does not get scanned itself on a later run.
-        # --redact matters: without it the SARIF carries the raw secret, which
-        # would then be copied into CI logs and any uploaded artifact. The file
-        # and line are enough to locate it.
+        # The report lands outside the repo so a later run does not scan it.
+        # --redact keeps the raw secret out of CI logs and artifacts.
         "$tmp/gitleaks" dir . --report-format sarif --redact \
           --report-path "$REPORT_DIR/gitleaks.sarif" --exit-code 0 --no-banner || true
 
@@ -188,32 +175,30 @@ runs:
         . "$GITHUB_ACTION_PATH/scripts/steps.sh"
         mapfile -t range < <(commit_range)
 
-        # An unmatched glob stays a literal string, so -e is what decides.
-        # `ls a b` cannot be used: it returns non-zero when either argument is
-        # missing, which would override the user's own config with --extends.
+        # An unmatched glob stays literal, so -e decides. A user's own config
+        # must win over --extends.
         extends="--extends @commitlint/config-conventional"
         for f in commitlint.config.* .commitlintrc*; do
           if [ -e "$f" ]; then extends=""; break; fi
         done
 
-        # npx --yes: never touches the consumer's package.json / node_modules.
-        # Both packages share one version line upstream, so they take one pin.
+        # npx --yes never touches the consumer's node_modules; both packages
+        # share one version line upstream.
         run_commitlint() {
           npx --yes --package "@commitlint/cli@$COMMITLINT_VERSION" \
             --package "@commitlint/config-conventional@$COMMITLINT_VERSION" -- \
             commitlint "$@"
         }
-        # An install failure must surface as an error rather than masquerade as
-        # a commit message violation inside commit.txt.
+        # An install failure must not masquerade as a message violation.
         run_commitlint --version >/dev/null 2>&1 \
           || { echo "::error::failed to install commitlint"; exit 1; }
-        # commitlint exits 0 for warning-level rules while still printing them,
-        # so its exit status is the verdict — not whether commit.txt has content.
+        # commitlint prints warnings and still exits 0, so the exit status is
+        # the verdict, not the output.
         run_commitlint "${range[@]}" $extends > "$REPORT_DIR/commit.txt" 2>&1 \
           || touch "$REPORT_DIR/commit.failed"
 
-    # Coding standard is not a built-in review: any linter that writes SARIF
-    # works, so the language matrix stays with the project that has one.
+    # Not a built-in review: any linter that writes SARIF works, so the
+    # language matrix stays with the project that has one.
     - name: Coding standard review — external SARIF
       if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.extra-sarif != '' }}
       shell: bash
@@ -223,8 +208,7 @@ runs:
       run: |
         set -uo pipefail
         . "$GITHUB_ACTION_PATH/scripts/steps.sh"
-        # "style" is also STYLE_DIR in report.mjs — the one string the two
-        # languages have to agree on.
+        # "style" is STYLE_DIR in report.mjs.
         collect_extra_sarif "$REPORT_DIR/style" || exit 1
 
     - name: Report
@@ -235,9 +219,8 @@ runs:
         EXPECT: ${{ steps.parse.outputs.expect }}
         REPORT_DIR: ${{ steps.parse.outputs.dir }}
         SCOPE: ${{ inputs.scope }}
-        # A push has a range too — event.before is the previous tip. It is all
-        # zeroes on a branch's first push and unreachable after a force push;
-        # both make the diff fail, which reports everything.
+        # event.before is the push range. Unusable on a first or forced push,
+        # where the diff fails and everything is reported.
         BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       run: |
@@ -249,8 +232,7 @@ runs:
         fi
         node "$GITHUB_ACTION_PATH/scripts/report.mjs" "$REPORT_DIR" "${args[@]}"
 
-    # Runs after Report on purpose: Report is the gate, and its exit code must
-    # not depend on whether a comment could be posted.
+    # After Report: the gate's exit code must not depend on a comment.
     - name: Pull request comment
       if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.pr-comment == 'true' && github.event.pull_request.number }}
       shell: bash
@@ -265,8 +247,7 @@ runs:
         [ -s "$file" ] || exit 0
         marker="<!-- agnostic-pipeline-review -->"
         body="$marker"$'\n'"$(cat "$file")"
-        # GitHub rejects a comment over 65536 characters and a full report can
-        # reach that, so cut it rather than lose the comment entirely.
+        # GitHub rejects comments over 65536 chars; cut rather than lose it.
         limit=60000
         if [ "${#body}" -gt "$limit" ]; then
           body="${body:0:$limit}"$'\n\n'"_Truncated — the full report is in the run's Job Summary._"
@@ -275,8 +256,7 @@ runs:
         id="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
           --jq "map(select((.body // \"\") | startswith(\"$marker\"))) | .[0].id // empty" \
           2>/dev/null | head -1)"
-        # A missing pull-requests: write permission, or a fork PR whose token has
-        # none, must never turn into a failed review.
+        # No pull-requests: write, fork PRs included, must never fail a review.
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" >/dev/null \
             || echo "::warning::could not update the pull request comment"
@@ -285,20 +265,14 @@ runs:
             || echo "::warning::could not post the pull request comment — needs 'pull-requests: write', and fork PRs cannot"
         fi
 
-    # Last, and always. The report is worth keeping most when the gate has just
-    # failed — and Report is the step that fails, so a plain `uses` here would
-    # skip exactly the run worth reading. Doing it inside the action also
-    # removes the two ways the equivalent consumer-side step goes wrong:
-    # forgetting `id:` uploads an empty artifact, forgetting `if: always()`
-    # loses it on failure. Neither is possible from here.
+    # Last, and always: the report matters most on the run where the gate
+    # failed, which is the run a consumer-side upload step tends to skip.
     - name: Upload the report
       if: ${{ always() && steps.parse.outputs.ok == 'true' && inputs.upload-artifact != '' }}
       uses: actions/upload-artifact@v7
       with:
         name: ${{ inputs.upload-artifact }}
         path: ${{ steps.parse.outputs.dir }}
-        # warn, not ignore: the directory is created up front and the report is
-        # always written into it, so finding it empty means something upstream
-        # broke. `ignore` would leave the user hunting the Actions tab for an
-        # artifact that was never created, with nothing said about why.
+        # warn, not ignore: the report is always written here, so an empty
+        # directory means something upstream broke.
         if-no-files-found: warn

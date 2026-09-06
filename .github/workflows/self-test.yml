@@ -17,20 +17,20 @@ jobs:
   unit:
     name: unit + shellcheck
     runs-on: ubuntu-latest
-    # Without this a hung job runs for the 6 hour default before anyone notices.
+    # A hung job would otherwise run for the 6 hour default.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: node scripts/report.test.mjs
       - run: node scripts/jscpd-to-sarif.test.mjs
       - run: bash scripts/steps.test.sh
-      # Preinstalled on the runner. The extracted shell is where the bugs have
-      # actually been, so it gets a static pass on top of its own tests.
+      # The extracted shell is where the bugs have been, so it gets a static
+      # pass on top of its own tests.
       - run: shellcheck scripts/*.sh
 
-  # Kept out of the matrix below: this one is about the copy step in action.yml,
-  # not about the scanners. `reviews: commit-message` runs no SARIF scanner at
-  # all, so the only finding in the report can be the style one.
+  # Out of the matrix: this is about the copy step, not the scanners.
+  # `reviews: commit-message` runs no SARIF scanner, so the only finding in the
+  # report can be the style one.
   extra-sarif:
     name: extra-sarif
     runs-on: ubuntu-latest
@@ -51,19 +51,18 @@ jobs:
           JSON
 
       # fail-on: critical with a level: error style finding — if style ever
-      # started gating, or landed on the CVSS scale, this job goes red.
+      # started gating, this job goes red.
       - id: review
         uses: ./
         with:
           reviews: commit-message
           fail-on: critical
           extra-sarif: style.sarif
-          # Same reason the matrix below pins it: the fixture is never in a
-          # diff, so the default scope would hide the one finding this job
-          # exists to look for. This tests the copy step, not the scoping.
+          # The fixture is never in a diff, so the default scope would hide the
+          # one finding this job looks for.
           scope: all
-          # Smoke test for the upload step — a bad path or a malformed name
-          # fails this job rather than being discovered by a consumer.
+          # Smoke test for the upload step: a bad path fails here, not at a
+          # consumer.
           upload-artifact: extra-sarif-report
 
       - name: Assert
@@ -104,10 +103,9 @@ jobs:
             fail-on: high
             expect: fail
           # code only: the secret finding must disappear from the report.
-          # The gate is `info`, not `high`: the band Semgrep assigns to the
-          # fixtures is decided by its registry rules, not by this repo, so
-          # pinning it to High would make the test depend on something we do
-          # not control. All we want to prove is "the gate catches findings".
+          # The gate is `info`, not `high`: the band Semgrep assigns comes from
+          # its registry rules, not from this repo. All this proves is that the
+          # gate catches findings.
           - reviews: code
             fail-on: info
             expect: fail
@@ -134,9 +132,8 @@ jobs:
         with:
           reviews: ${{ matrix.reviews }}
           fail-on: ${{ matrix.fail-on }}
-          # The fixtures are never in a pull request's diff, so the default
-          # scope would scope every expected finding away and turn the whole
-          # matrix green. This suite tests the scanners, not the scoping.
+          # The fixtures are never in a diff, so the default scope would hide
+          # every expected finding. This suite tests the scanners.
           scope: all
 
       - name: Assert
@@ -154,9 +151,8 @@ jobs:
             node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
               console.log((d.runs||[]).reduce((a,r)=>a+(r.results||[]).length,0));' "$1"
           }
-          # A fixture that stops triggering a scanner must be diagnosed as
-          # exactly that, not masquerade as "the gate is broken". Hence the
-          # content checks run before the pass/fail comparison.
+          # Content checks run first so a fixture that stopped triggering a
+          # scanner is not reported as a broken gate.
           expect_findings() {
             [ -s "$1" ] || { echo "::error::$(basename "$1") is missing or empty"; exit 1; }
             n="$(results "$1")"
@@ -169,10 +165,8 @@ jobs:
             case "$REVIEWS" in
               *vulnerability*)
                 expect_findings "$DIR/gitleaks.sarif"
-                # Trivy is deliberately checked for presence only: fetching its
-                # CVE database depends on the network/registry, so demanding
-                # findings here would make the test flaky for reasons outside
-                # this repo.
+                # Presence only: Trivy's CVE database comes over the network,
+                # so demanding findings would make this flaky.
                 [ -s "$DIR/trivy.sarif" ] || { echo "::error::trivy.sarif is missing"; exit 1; } ;;
               *)
                 [ ! -f "$DIR/gitleaks.sarif" ] || { echo "::error::gitleaks ran without being requested"; exit 1; } ;;
@@ -185,10 +179,9 @@ jobs:
             esac
             case "$REVIEWS" in
               *commit-message*)
-                # commit.txt is always written, and is empty when every message
-                # passes. So presence is what we assert — without this check
-                # commitlint could die silently while the matrix row stays green
-                # on another scanner's findings.
+                # commit.txt is always written and empty when every message
+                # passes, so presence is the assertion — otherwise commitlint
+                # could die silently while the row stays green.
                 [ -f "$DIR/commit.txt" ] || { echo "::error::commit.txt is missing, commitlint did not run"; exit 1; } ;;
               *)
                 [ ! -f "$DIR/commit.txt" ] || { echo "::error::commitlint ran without being requested"; exit 1; } ;;
@@ -201,18 +194,15 @@ jobs:
             exit 1
           fi
 
-      # This integration test cannot be run locally, so when an assert fails the
-      # raw SARIF must be downloadable for inspection. It has to come after
-      # Assert: the review step is already continue-on-error, so before this
-      # point failure() never fires.
+      # Not runnable locally, so a failed assert has to leave the raw SARIF
+      # downloadable. After Assert: the review step is continue-on-error, so
+      # failure() never fires before this point.
       - name: Upload raw SARIF on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: report-${{ strategy.job-index }}
           path: ${{ steps.review.outputs.report-dir }}
-          # ignore here, warn inside action.yml, and the difference is on
-          # purpose: this step only runs on a failed job, where the review may
-          # have exited before a report directory existed at all. Warning about
-          # that would just add noise to a run that is already red.
+          # ignore here, warn inside action.yml: this only runs on a failed job,
+          # where the review may have exited before the directory existed.
           if-no-files-found: ignore

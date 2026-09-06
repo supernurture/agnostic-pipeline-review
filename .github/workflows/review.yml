@@ -1,11 +1,8 @@
-# This repository reviewing itself with its own action, exactly the way a
-# consumer would. self-test.yml proves the action *works*; nothing there ever
-# lets a finding block anything — every call is continue-on-error, and half the
-# rows expect failure. So until now the one repository publishing this gate was
-# the one repository not standing behind it.
+# This repository reviewing itself the way a consumer would. self-test.yml
+# proves the action works but never lets a finding block anything: every call
+# there is continue-on-error and half the rows expect failure.
 #
-# Pull requests only. self-test.yml already covers push, and a gate belongs on
-# the thing being merged.
+# Pull requests only — a gate belongs on the thing being merged.
 name: Review
 
 on:
@@ -15,9 +12,7 @@ permissions:
   contents: read
   pull-requests: write
 
-# The same guard self-test.yml carries, and this job needs it more: it installs
-# three scanners, so a branch pushed to twice in a minute would otherwise run
-# them twice over.
+# Three scanner installs per run: do not let pushes pile up.
 concurrency:
   group: review-${{ github.ref }}
   cancel-in-progress: true
@@ -29,21 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # commitlint reads the PR's commit range, and `scope` needs both ends
-          # of the diff.
+          # commitlint needs the commit range, `scope` both ends of the diff.
           fetch-depth: 0
 
-      # `./`, not the published tag: a pull request has to be reviewed by the
-      # code it is proposing, otherwise a change that breaks the gate sails
-      # through on the strength of the last release.
+      # `./`, not the published tag: a PR must be reviewed by the code it
+      # proposes, not by the last release.
       - uses: ./
         with:
           reviews: code,vulnerability,commit-message
           fail-on: high
-          # The default, spelled out because it is doing real work here:
-          # examples/fixtures/ is deliberately full of secrets and injections,
-          # and scoping to the diff is what keeps them out of every unrelated
-          # pull request. Touch a fixture and it is flagged — correctly.
+          # The default, spelled out because it does real work here:
+          # examples/fixtures/ is full of deliberate secrets, and scoping to
+          # the diff keeps them out of unrelated pull requests.
           scope: changed
           pr-comment: "true"
           upload-artifact: review-report

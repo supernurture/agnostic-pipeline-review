@@ -1,9 +1,8 @@
 # Optional, for the local lane — copy this to .pre-commit-config.yaml in your
 # project, then run `pre-commit install --install-hooks -t pre-commit -t commit-msg`.
 #
-# This is NOT the pipeline's source of truth. The severity-ranked report is
-# produced in CI by the action; pre-commit here is only a fast pass/fail gate on
-# a developer machine. Delete any block you do not use.
+# NOT the pipeline's source of truth: the severity-ranked report comes from the
+# action in CI. This is only a fast local pass/fail. Delete what you do not use.
 
 repos:
   # --- vulnerability review ---

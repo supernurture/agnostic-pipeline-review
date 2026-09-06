@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Turn a jscpd JSON report into SARIF, so clone detection can join the review
-// like everything else. No linter detects duplication, and no free duplication
-// tool emits SARIF — this is the whole bridge, and it is deliberately small.
+// Turn a jscpd JSON report into SARIF so clone detection can join the review.
+// No free duplication tool emits SARIF; this is the whole bridge.
 //
 // Usage:
 //   jscpd --reporters json --output .jscpd .
@@ -10,8 +9,8 @@
 // Then hand duplication.sarif to the action's `extra-sarif` input.
 //
 // Run it from the repository root scanning `.`: jscpd reports paths relative
-// to whatever it was told to scan, so `jscpd src` yields `a.js` where the rest
-// of the pipeline — `scope: changed` above all — expects `src/a.js`.
+// to what it scanned, so `jscpd src` yields `a.js` where `scope: changed`
+// expects `src/a.js`.
 
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -27,9 +26,8 @@ function region(side) {
   return Number.isInteger(end) && end >= start ? { startLine: start, endLine: end } : { startLine: start };
 }
 
-/** SARIF wants a URI, and on Windows jscpd hands back `src\a.js`. Left alone it
- *  also never matches `git diff --name-only`, which always uses forward slashes
- *  — the finding would then be scoped away without a word. */
+/** SARIF wants a URI, and on Windows jscpd hands back `src\a.js` — which never
+ *  matches a git diff path, so the finding would be scoped away in silence. */
 function uriOf(name) {
   return typeof name === "string" ? name.replace(/\\/g, "/") : undefined;
 }
@@ -54,16 +52,14 @@ export function toSarif(report) {
 
   for (const dup of duplicates) {
     // The first side is the primary location; without it there is nothing to
-    // point at, and a finding with no location helps no one.
+    // point at.
     const first = place(dup?.firstFile);
     if (!first) continue;
     const second = place(dup?.secondFile);
     results.push({
       ruleId: RULE_ID,
-      // `note`, not `warning`: duplication is a smell, not a defect. This SARIF
-      // is meant for the coding standard section, which is off the CVSS scale
-      // — but if someone feeds it in as a normal scanner report instead, `note`
-      // lands it in Info rather than inventing a severity for it.
+      // `note`, not `warning`: duplication is a smell. Fed in as an ordinary
+      // scanner report this lands in Info rather than inventing a severity.
       level: "note",
       message: { text: describe(dup ?? {}, dup?.secondFile) },
       locations: [first],

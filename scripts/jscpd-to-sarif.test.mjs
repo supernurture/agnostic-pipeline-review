@@ -25,13 +25,12 @@ const only = (report) => toSarif(report).runs[0].results;
     }],
   });
   assert.equal(r.ruleId, "duplication");
-  // note, not warning: fed in as an ordinary report this must land in Info
-  // rather than invent a severity for a smell.
+  // note, not warning: fed in as an ordinary report this lands in Info.
   assert.equal(r.level, "note");
   assert.deepEqual(r.locations[0].physicalLocation.artifactLocation, { uri: "src/a.js" });
   assert.deepEqual(r.locations[0].physicalLocation.region, { startLine: 10, endLine: 22 });
-  // The other half of the pair has to be reachable and named — our report only
-  // renders locations[0], so the message is where the reader learns the pair.
+  // The report renders locations[0] only, so the message is where the reader
+  // learns the other half of the pair.
   assert.equal(r.relatedLocations[0].physicalLocation.artifactLocation.uri, "src/b.js");
   assert.equal(r.message.text, "12 duplicated lines, also at src/b.js:30");
 }
