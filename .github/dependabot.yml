@@ -1,18 +1,16 @@
 version: 2
 updates:
-  # Third-party action pins in action.yml and the workflows must not go stale —
-  # this is a security pipeline, and the scanner versions shape its quality.
+  # Action pins in action.yml and the workflows must not go stale: the scanner
+  # versions shape the quality of the review.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-# Note: the `semgrep-version` and `gitleaks-version` inputs in action.yml are
-# out of Dependabot's reach — both are self-downloaded binary versions, so bump
-# them by hand. The `rev:` pins in presets/pre-commit.yaml are manual too.
-# `trivy-version` and `commitlint-version` are absent from that list on purpose:
-# they default to `latest`, so there is no pin to go stale.
+# Out of Dependabot's reach, bump by hand: the `semgrep-version` and
+# `gitleaks-version` inputs in action.yml, and the `rev:` pins in
+# presets/pre-commit.yaml. `trivy-version` and `commitlint-version` default to
+# `latest`, so there is no pin to go stale.
 #
-# Dependabot rewrites .github/workflows/ and action.yml, and nothing else — so
-# the same `uses:` lines copied into README.md and examples/ silently fall
-# behind after every bump. Those are the two copies new users start from, so
-# grep for the old version and update them by hand when a PR lands.
+# Dependabot rewrites .github/workflows/ and action.yml and nothing else, so
+# the same `uses:` lines in README.md and examples/ — the two copies new users
+# start from — fall behind on every bump. Grep and update them when a PR lands.

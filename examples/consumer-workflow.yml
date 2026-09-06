@@ -3,10 +3,8 @@ name: Review
 
 on:
   pull_request:
-    # For pull_request, `branches` filters the branch being merged *into*, so
-    # this reads as "review whatever is on its way into main". GitHub has no
-    # "protected branches" filter, so the names have to be spelled out.
-    # Drop the `branches` line to review every PR.
+    # For pull_request, `branches` filters the branch being merged *into*:
+    # "review whatever is on its way into main". Drop it to review every PR.
     branches: [main]
 
 permissions:
@@ -18,15 +16,14 @@ jobs:
   review:
     # Linux only: the action uses pipx, tar and sha256sum.
     runs-on: ubuntu-latest
-    # A composite action cannot time its own steps out, so the job has to. The
-    # GitHub default is 6 hours, which is not a useful failure mode for a
-    # scanner install that stalled on the network.
+    # A composite action cannot time its own steps out, so the job has to; the
+    # 6 hour default is no use for a stalled scanner install.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
-          # Full history: commitlint reads the PR's commit range, and `scope`
-          # needs both ends of the diff. Safe to drop only if you use neither.
+          # Full history: commitlint needs the commit range, `scope` both ends
+          # of the diff. Drop it only if you use neither.
           fetch-depth: 0
 
       - uses: supernurture/agnostic-pipeline-review@v1
@@ -34,12 +31,11 @@ jobs:
           # Plug in / unplug reviews on this line.
           reviews: code,vulnerability,commit-message
           fail-on: high
-          # Gate on the lines this PR adds or edits; everything else is
-          # reported, not dropped. Use `all` to gate on the whole tree.
+          # Gate on the lines this PR touches; the rest is reported, not
+          # dropped. Use `all` for the whole tree.
           scope: changed
-          # One comment on the PR, rewritten each run, instead of only the
-          # Job Summary.
+          # One comment on the PR, rewritten each run.
           pr-comment: "true"
-          # Keep the report as a downloadable artifact. A name, not a boolean:
-          # artifact names have to be unique within a run.
+          # Downloadable report. A name, not a boolean: artifact names have to
+          # be unique within a run.
           upload-artifact: review-report

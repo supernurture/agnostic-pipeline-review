@@ -37,10 +37,8 @@ check "explicit range from the event" "--from aaa --to bbb " "$out"
 out="$(unset FROM TO; commit_range | tr '\n' ' ')"
 check "derived range walks back one commit" "--from $base --to HEAD " "$out"
 
-# A HEAD with no parent must ask for --last. Not a --from equal to --to:
-# commitlint rejects that and dumps its usage text into the report. And not a
-# literal "HEAD~1" either — a bare `git rev-parse` echoes an unresolved ref
-# straight back on stdout, which is what made this branch unreachable before.
+# A HEAD with no parent must ask for --last: commitlint dumps its usage text
+# on a --from equal to --to, and a bare `git rev-parse` echoes "HEAD~1" back.
 single="$work/single"
 git init -q -b main "$single"
 cd "$single" || exit 1
@@ -57,8 +55,7 @@ check "a real range succeeds" "0" "$?"
 # b.txt is one new line, so the range is 1-1 — path, start, end, tab separated.
 check "and reports the added range" "b.txt	1	1" "$(cat "$out_file" 2>/dev/null)"
 
-# The point of the whole exercise: editing one line of a long file must not
-# claim the rest of it. Ten lines, then a single edit in the middle.
+# The point of the exercise: editing one line must not claim the whole file.
 printf 'l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n' > manifest.txt
 git add manifest.txt && git commit -qm "feat: manifest"
 mid="$(git rev-parse HEAD)"
@@ -85,10 +82,9 @@ SCOPE=changed BASE=deadbeef changed_lines "$out_file"
 check "an unreachable base fails open" "1" "$?"
 check "without leaving a partial list" "no" "$(exists "$out_file")"
 
-# A range against itself has no added lines. That must fail open rather than
-# scope to nothing — a parsing regression looks exactly the same from here, and
-# silently suppressing every finding while staying green is the one outcome
-# this pipeline must never produce.
+# A range against itself has no added lines: fail open, not scope to nothing.
+# A parsing regression looks identical from here, and suppressing every finding
+# while staying green is the one outcome this pipeline must never produce.
 SCOPE=changed BASE=HEAD HEAD=HEAD changed_lines "$out_file"
 check "an empty diff fails open" "1" "$?"
 check "leaving no empty list behind" "no" "$(exists "$out_file")"

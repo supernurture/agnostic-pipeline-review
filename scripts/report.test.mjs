@@ -138,8 +138,7 @@ assert.equal(gate([], "Info"), false);
   // Rows that cannot be trusted are skipped rather than guessed at
   assert.equal(readChanged(write("a.py\nb.py\t1\n\ta\t1\na.py\tx\t3\na.py\t0\t2\na.py\t9\t4\n")), null);
   assert.deepEqual(readChanged(write("junk\na.py\t2\t4\n")), new Map([["a.py", [[2, 4]]]]));
-  // Nothing usable means no scoping at all: hiding every finding because the
-  // parsing regressed must never come out as a green build.
+  // Nothing usable means no scoping: a parsing regression must not go green.
   assert.equal(readChanged(write("")), null);
   assert.equal(readChanged(write("\n   \n")), null);
   assert.equal(readChanged(join(dir, "absent.txt")), null);
@@ -223,8 +222,8 @@ try {
   // A finding without a location must not render an empty backticked placeholder.
   assert.doesNotMatch(r.stdout, /`—`/);
   assert.match(r.stdout, /^- gitleaks\/k$/m);
-  // The report is also written to disk so it can be uploaded as an artifact.
-  // Compare against the run that produced it — a later run overwrites the file.
+  // Also written to disk for the artifact upload. Compare against the run that
+  // produced it: a later run overwrites the file.
   const reportFile = join(onlyOk, "review-report.md");
   assert.ok(existsSync(reportFile), "review-report.md must be written");
   assert.equal(readFileSync(reportFile, "utf8").trim(), r.stdout.trim());
@@ -261,8 +260,8 @@ try {
   writeFileSync(changedFile, "db.py\t5\t9\n");
   assert.equal(run([scoped, "--fail-on", "critical", "--changed", changedFile]).code, 1);
 
-  // The case that started this: a manifest gains one line, and every CVE
-  // already recorded against that file must stay out of the report.
+  // The case that started this: a manifest gains one line, and its existing
+  // CVEs must stay out of the report.
   const manifest = mkdtempSync(join(tmpdir(), "apr-manifest-"));
   writeFileSync(join(manifest, "trivy.sarif"), JSON.stringify({
     runs: [{
@@ -285,8 +284,7 @@ try {
   assert.match(r.stdout, /Not listed: 39 finding/);
   rmSync(manifest, { recursive: true, force: true });
 
-  // An empty or missing list must fail open — scoping to nothing would hide
-  // every finding in the repo.
+  // An empty or missing list must fail open, not hide every finding.
   writeFileSync(changedFile, "\n  \n");
   assert.equal(readChanged(changedFile), null);
   assert.equal(run([scoped, "--fail-on", "critical", "--changed", changedFile]).code, 1);
@@ -340,8 +338,8 @@ try {
   assert.equal(run([onlyOk, "--fail-on", "none", "--expect", "trivy.sarif"]).code, 1);
 
   // --- A tool that normally scores but stopped ---
-  // Its bands move to the fallback table with no error anywhere, so the report
-  // has to say so — as a note, not as a build failure.
+  // Its bands move to the fallback with no error anywhere, so the report says
+  // so — as a note, not a failure.
   const noScore = mkdtempSync(join(tmpdir(), "apr-noscore-"));
   const sarif = (tool, extra) =>
     JSON.stringify({ runs: [{ tool: { driver: { name: tool } }, results: [{ ruleId: "x", ...extra }] }] });
@@ -376,9 +374,8 @@ try {
   );
   assert.deepEqual(collect(noScore).notes, []);
 
-  // A commit message violation fails, and shows up in its own section.
-  // commit.failed is the verdict — the step writes it when commitlint exits
-  // non-zero, because output alone does not mean failure.
+  // A violation fails and shows up in its own section. commit.failed is the
+  // verdict: output alone does not mean failure.
   writeFileSync(join(onlyOk, "commit.txt"), "subject may not be empty");
   writeFileSync(join(onlyOk, "commit.failed"), "");
   r = run([onlyOk, "--fail-on", "none"]);
@@ -386,8 +383,7 @@ try {
   assert.match(r.stdout, /### Commit Message/);
   assert.match(r.stdout, /subject may not be empty/);
 
-  // commitlint prints warning-level rules and still exits 0: the text must be
-  // shown, and it must not fail the build.
+  // commitlint prints warnings and still exits 0: shown, but not fatal.
   rmSync(join(onlyOk, "commit.failed"));
   writeFileSync(join(onlyOk, "commit.txt"), "found 0 problems, 1 warnings");
   r = run([onlyOk, "--fail-on", "none"]);
