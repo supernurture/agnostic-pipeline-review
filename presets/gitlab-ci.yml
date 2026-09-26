@@ -1,0 +1,231 @@
+# Agnostic Review Pipeline for GitLab CI — same scanners, same report, same
+# gate as the GitHub Action. Include it, do not copy it:
+#
+#   include:
+#     - remote: "https://raw.githubusercontent.com/supernurture/agnostic-pipeline-review/v1/presets/gitlab-ci.yml"
+#   variables:
+#     REVIEWS: "code,vulnerability,commit-message"
+#
+# Needs a `test` stage, which GitLab's default pipeline has. Override any
+# variable below in your own `variables:` block. Set REVIEW_TOKEN — a project
+# access token with api scope — to also post the report as one self-updating
+# merge request note.
+
+variables:
+  # Plug in / unplug reviews here: code, vulnerability, commit-message.
+  REVIEWS: "code,vulnerability"
+  REVIEW_FAIL_ON: high
+  REVIEW_SCOPE: changed
+  REVIEW_SEMGREP_CONFIG: p/ci
+  # SARIF from your own linters, comma- or space-separated. Globs allowed.
+  REVIEW_EXTRA_SARIF: ""
+  REVIEW_REPORT_DIR: review-report
+  # Versions are image tags here — the GitLab way to pin a tool. Bump them with
+  # the *-version inputs in action.yml; gitlab-ci.test.mjs fails if they drift.
+  REVIEW_SEMGREP_IMAGE: semgrep/semgrep:1.176.0
+  REVIEW_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1
+  # latest on purpose: for these two the version is the freshness — the CVE
+  # database and the rule defaults.
+  REVIEW_TRIVY_IMAGE: aquasec/trivy:latest
+  REVIEW_COMMITLINT_VERSION: latest
+  # The commit-message and report jobs need node, git and bash — not -slim.
+  REVIEW_NODE_IMAGE: node:22
+  REVIEW_REPO: https://github.com/supernurture/agnostic-pipeline-review.git
+  REVIEW_REF: v1
+
+.review-guard:
+  rules:
+    # A branch pipeline that only duplicates an open merge request's.
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_OPEN_MERGE_REQUESTS
+      when: never
+
+.review-job:
+  stage: test
+  # A newer push supersedes this run; let GitLab cancel it.
+  interruptible: true
+  # Nothing to download: every scanner writes its own file.
+  dependencies: []
+  artifacts:
+    when: always
+    paths:
+      - $REVIEW_REPORT_DIR/
+
+review:code:
+  extends: .review-job
+  image:
+    name: $REVIEW_SEMGREP_IMAGE
+    entrypoint: [""]
+  rules:
+    - !reference [.review-guard, rules]
+    - if: $REVIEWS =~ /(^|,)\s*code\s*(,|$)/
+  script:
+    - mkdir -p "$REVIEW_REPORT_DIR"
+    # report.mjs is the gate; a failed scan surfaces there as a missing report.
+    - semgrep scan --config "$REVIEW_SEMGREP_CONFIG" --sarif --output "$REVIEW_REPORT_DIR/semgrep.sarif" --metrics off --quiet . || true
+
+review:trivy:
+  extends: .review-job
+  image:
+    name: $REVIEW_TRIVY_IMAGE
+    entrypoint: [""]
+  rules:
+    - !reference [.review-guard, rules]
+    - if: $REVIEWS =~ /(^|,)\s*vulnerability\s*(,|$)/
+  # The vulnerability DB, so every run does not download it and hit ghcr's
+  # rate limit. Trivy still refreshes it once it is stale.
+  variables:
+    TRIVY_CACHE_DIR: .trivycache/
+  cache:
+    key: trivy-db
+    paths:
+      - .trivycache/
+  script:
+    - mkdir -p "$REVIEW_REPORT_DIR"
+    # The cache sits in the checkout, so it must not be scanned.
+    - trivy fs . --scanners vuln,misconfig --skip-dirs .trivycache --format sarif --output "$REVIEW_REPORT_DIR/trivy.sarif" --exit-code 0 --quiet || true
+
+review:gitleaks:
+  extends: .review-job
+  image:
+    name: $REVIEW_GITLEAKS_IMAGE
+    entrypoint: [""]
+  rules:
+    - !reference [.review-guard, rules]
+    - if: $REVIEWS =~ /(^|,)\s*vulnerability\s*(,|$)/
+  script:
+    - mkdir -p "$REVIEW_REPORT_DIR"
+    # --redact keeps the raw secret out of the job log and the artifact.
+    - gitleaks dir . --report-format sarif --redact --report-path "$REVIEW_REPORT_DIR/gitleaks.sarif" --exit-code 0 --no-banner || true
+
+review:commit-message:
+  extends: .review-job
+  image: $REVIEW_NODE_IMAGE
+  variables:
+    # Full history: commitlint needs both ends of the range.
+    GIT_DEPTH: 0
+  rules:
+    - !reference [.review-guard, rules]
+    - if: $REVIEWS =~ /(^|,)\s*commit-message\s*(,|$)/
+  script:
+    - |
+      set -uo pipefail
+      mkdir -p "$REVIEW_REPORT_DIR"
+      # fetch, not clone --branch: this way REVIEW_REF can also be a commit sha.
+      git init -q /tmp/apr && git -C /tmp/apr fetch -q --depth 1 "$REVIEW_REPO" "$REVIEW_REF" && git -C /tmp/apr checkout -q FETCH_HEAD \
+        || { echo "failed to fetch $REVIEW_REPO at $REVIEW_REF"; exit 1; }
+      . /tmp/apr/scripts/steps.sh
+      # A merged-results pipeline checks out GitLab's merge commit; the source
+      # tip keeps target-branch commits out of the range.
+      export FROM="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" TO="${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA:-$CI_COMMIT_SHA}"
+      mapfile -t range < <(commit_range)
+
+      # An unmatched glob stays literal, so -e decides. A user's own config
+      # must win over --extends.
+      extends="--extends @commitlint/config-conventional"
+      for f in commitlint.config.* .commitlintrc*; do
+        if [ -e "$f" ]; then extends=""; break; fi
+      done
+
+      run_commitlint() {
+        npx --yes --package "@commitlint/cli@$REVIEW_COMMITLINT_VERSION" \
+          --package "@commitlint/config-conventional@$REVIEW_COMMITLINT_VERSION" -- \
+          commitlint "$@"
+      }
+      # An install failure must not masquerade as a message violation.
+      run_commitlint --version >/dev/null 2>&1 \
+        || { echo "failed to install commitlint"; exit 1; }
+      # commitlint prints warnings and still exits 0, so the exit status is
+      # the verdict, not the output.
+      run_commitlint "${range[@]}" $extends > "$REVIEW_REPORT_DIR/commit.txt" 2>&1 \
+        || touch "$REVIEW_REPORT_DIR/commit.failed"
+
+# In test, not .post: .post runs after deploy, so it could never hold one back.
+# needs orders it after the scanners, and when: always runs it even when one of
+# them failed. GitLab has no job summary, so the report is the job log plus the
+# artifact.
+review:report:
+  stage: test
+  interruptible: true
+  image: $REVIEW_NODE_IMAGE
+  # Artifacts come from these jobs only. Feeding REVIEW_EXTRA_SARIF from your
+  # own lint job means overriding needs with this list plus that job.
+  needs:
+    - { job: "review:code", optional: true }
+    - { job: "review:trivy", optional: true }
+    - { job: "review:gitleaks", optional: true }
+    - { job: "review:commit-message", optional: true }
+  variables:
+    # Full history: scoping needs both ends of the diff.
+    GIT_DEPTH: 0
+  rules:
+    - !reference [.review-guard, rules]
+    - if: $REVIEWS
+      when: always
+  artifacts:
+    when: always
+    paths:
+      - $REVIEW_REPORT_DIR/
+  script:
+    - |
+      set -uo pipefail
+      mkdir -p "$REVIEW_REPORT_DIR"
+      # fetch, not clone --branch: this way REVIEW_REF can also be a commit sha.
+      git init -q /tmp/apr && git -C /tmp/apr fetch -q --depth 1 "$REVIEW_REPO" "$REVIEW_REF" && git -C /tmp/apr checkout -q FETCH_HEAD \
+        || { echo "failed to fetch $REVIEW_REPO at $REVIEW_REF"; exit 1; }
+      . /tmp/apr/scripts/steps.sh
+      export SCOPE="$REVIEW_SCOPE" EXTRA="$REVIEW_EXTRA_SARIF"
+      check_inputs || exit 1
+      expect="$(expected_reports)" || exit 1
+      # No merge request means a branch pipeline, where the previous tip is the
+      # range. Unusable on a first or forced push, and then everything is
+      # reported rather than nothing.
+      export BASE="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-$CI_COMMIT_BEFORE_SHA}"
+      # Source tip, not the merged-results merge commit — see review:commit-message.
+      export HEAD="${CI_MERGE_REQUEST_SOURCE_BRANCH_SHA:-$CI_COMMIT_SHA}"
+
+      # "style" is STYLE_DIR in report.mjs.
+      if [ -n "$EXTRA" ]; then collect_extra_sarif "$REVIEW_REPORT_DIR/style" || exit 1; fi
+
+      args=(--fail-on "$REVIEW_FAIL_ON" --expect "$expect")
+      if changed_lines "$REVIEW_REPORT_DIR/changed.txt"; then
+        args+=(--changed "$REVIEW_REPORT_DIR/changed.txt")
+      fi
+      status=0
+      node /tmp/apr/scripts/report.mjs "$REVIEW_REPORT_DIR" "${args[@]}" || status=$?
+
+      # After the report: the gate's exit code must not depend on a note.
+      file="$REVIEW_REPORT_DIR/review-report.md"
+      if [ -n "${REVIEW_TOKEN:-}" ] && [ -n "${CI_MERGE_REQUEST_IID:-}" ] && [ -s "$file" ]; then
+        marker="<!-- agnostic-pipeline-review -->"
+        api="$CI_API_V4_URL/projects/$CI_PROJECT_ID/merge_requests/$CI_MERGE_REQUEST_IID/notes"
+        # Reuse our own note so a long-running merge request does not collect
+        # one per run. node, not jq: the image has no jq.
+        # ponytail: first page only, oldest first — our note is created on the
+        # first run, so it is early. Paginate if an MR ever buries it.
+        id="$(curl -sS --header "PRIVATE-TOKEN: $REVIEW_TOKEN" "$api?per_page=100&sort=asc" | node -e '
+          let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+            try {
+              const n = JSON.parse(s).find((x) => (x.body || "").startsWith(process.argv[1]));
+              if (n) console.log(n.id);
+            } catch {}
+          })' "$marker" || true)"
+        # From a file, not an argument: a single argument caps at 128 KB, and a
+        # long commitlint log passes that — findings are capped, that log is not.
+        note="$(mktemp)"
+        if [ "$(wc -c < "$file")" -gt 900000 ]; then
+          # GitLab rejects a note over 1,000,000 characters; cut rather than
+          # lose it. sed drops the partial last line, so no character is split.
+          { echo "$marker"; head -c 900000 "$file" | sed '$d'
+            echo; echo "_Truncated — the full report is in this job's artifact._"; } > "$note"
+        else
+          { echo "$marker"; cat "$file"; } > "$note"
+        fi
+        if [ -n "$id" ]; then
+          curl -sSf -X PUT --header "PRIVATE-TOKEN: $REVIEW_TOKEN" --data-urlencode "body@$note" "$api/$id" -o /dev/null \
+            || echo "warning: could not update the merge request note"
+        else
+          curl -sSf -X POST --header "PRIVATE-TOKEN: $REVIEW_TOKEN" --data-urlencode "body@$note" "$api" -o /dev/null \
+            || echo "warning: could not post the merge request note — REVIEW_TOKEN needs api scope"
+        fi
+      fi
+      exit $status
