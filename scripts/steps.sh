@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Branching logic lifted out of action.yml so it can be tested without a runner.
-# Sourced, not executed: `. "$GITHUB_ACTION_PATH/scripts/steps.sh"`. Only the
-# parts that decide something live here; self-test.yml covers the rest.
+# Branching logic shared by action.yml and presets/gitlab-ci.yml, so it can be
+# tested without a runner and is written once for both lanes. Sourced, not
+# executed: `. "$GITHUB_ACTION_PATH/scripts/steps.sh"`. Only the parts that
+# decide something live here; self-test.yml covers the rest.
 
 # Prints the commitlint range arguments, one per line.
 #
@@ -86,4 +87,34 @@ collect_extra_sarif() {
       return 1
     fi
   done
+}
+
+# Fails on an empty REVIEWS or an unknown SCOPE. A typo must fail loudly, not
+# skip a review or widen the gate. Review names are expected_reports' job.
+check_inputs() {
+  if [ -z "$(echo "${REVIEWS:-}" | tr -d '[:space:],')" ]; then
+    echo "::error::no reviews enabled (choices: code, vulnerability, commit-message)" >&2
+    return 1
+  fi
+  case "${SCOPE:-}" in
+    changed|all) ;;
+    *) echo "::error::unknown scope: '${SCOPE:-}' (choices: changed, all)" >&2
+       return 1 ;;
+  esac
+}
+
+# Prints the SARIF filenames the enabled reviews must produce, comma separated.
+# Reads REVIEWS. One list for both lanes so a new scanner is not added twice.
+expected_reports() {
+  local out="" r
+  for r in $(echo "${REVIEWS:-}" | tr ',' ' '); do
+    case "$r" in
+      code) out="$out,semgrep.sarif" ;;
+      vulnerability) out="$out,trivy.sarif,gitleaks.sarif" ;;
+      commit-message) ;;
+      *) echo "::error::unknown review: '$r' (choices: code, vulnerability, commit-message)" >&2
+         return 1 ;;
+    esac
+  done
+  printf '%s\n' "${out#,}"
 }
