@@ -74,32 +74,19 @@ runs:
         REPORT_DIR: ${{ runner.temp }}/agnostic-review
       run: |
         set -euo pipefail
-        if [ -z "$(echo "$REVIEWS" | tr -d '[:space:],')" ]; then
-          echo "::error::input 'reviews' is empty (choices: code, vulnerability, commit-message)"
-          exit 1
-        fi
-        case "$SCOPE" in
-          changed|all) ;;
-          *) echo "::error::unknown scope: '$SCOPE' (choices: changed, all)"; exit 1 ;;
-        esac
+        . "$GITHUB_ACTION_PATH/scripts/steps.sh"
+        check_inputs || exit 1
+        # expected_reports rejects an unknown name, so this loop need not.
+        expect="$(expected_reports)" || exit 1
         mkdir -p "$REPORT_DIR"
-        expect=""
         for r in $(echo "$REVIEWS" | tr ',' ' '); do
           case "$r" in
-            code)
-              echo "run_code=true" >> "$GITHUB_OUTPUT"
-              expect="$expect,semgrep.sarif" ;;
-            vulnerability)
-              echo "run_vuln=true" >> "$GITHUB_OUTPUT"
-              expect="$expect,trivy.sarif,gitleaks.sarif" ;;
-            commit-message)
-              echo "run_commit=true" >> "$GITHUB_OUTPUT" ;;
-            *)
-              echo "::error::unknown review: '$r' (choices: code, vulnerability, commit-message)"
-              exit 1 ;;
+            code) echo "run_code=true" >> "$GITHUB_OUTPUT" ;;
+            vulnerability) echo "run_vuln=true" >> "$GITHUB_OUTPUT" ;;
+            commit-message) echo "run_commit=true" >> "$GITHUB_OUTPUT" ;;
           esac
         done
-        echo "expect=${expect#,}" >> "$GITHUB_OUTPUT"
+        echo "expect=$expect" >> "$GITHUB_OUTPUT"
         echo "dir=$REPORT_DIR" >> "$GITHUB_OUTPUT"
         echo "ok=true" >> "$GITHUB_OUTPUT"
 

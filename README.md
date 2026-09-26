@@ -6,8 +6,10 @@ don't. The result is a single report ranked by severity: **Critical / High /
 Medium / Low / Info**.
 
 Multi-language (it inherits Semgrep and Trivy's coverage) and free end to end.
+Runs as a **GitHub Action** or as a **GitLab CI** include — same scanners, same
+report, same gate.
 
-## Use
+## Use (GitHub Actions)
 
 ```yaml
 # .github/workflows/review.yml
@@ -54,6 +56,85 @@ Often the thing you actually want is the opposite: let the review run on every
 PR, and let **Require status checks to pass** in the branch protection rule
 decide where it may block a merge. Running it everywhere is cheap and surfaces
 findings earlier; only the protected branch enforces them.
+
+## GitLab CI
+
+Include the template rather than copying it, so it updates with the ref you
+pin:
+
+```yaml
+# .gitlab-ci.yml
+include:
+  - remote: "https://raw.githubusercontent.com/supernurture/agnostic-pipeline-review/v1/presets/gitlab-ci.yml"
+
+variables:
+  REVIEWS: "code,vulnerability"   # <- plug in / unplug here
+  REVIEW_FAIL_ON: high            # default
+```
+
+Needs a `test` stage, which GitLab's default pipeline has. Semgrep, Trivy and
+Gitleaks each run from their own official image, so on GitLab the version is
+the image tag rather than a download; commitlint still comes from npx.
+
+The review jobs run in merge request pipelines, so including them makes GitLab
+start one for every MR — beside the branch pipeline, where the reviews then
+skip themselves. Your other jobs stay in the branch pipeline, out of the
+report's reach. If your project only had branch pipelines until now, pick one
+kind with `workflow: rules`; GitLab's own template does it in one line:
+
+```yaml
+include:
+  - template: Workflows/MergeRequest-Pipelines.gitlab-ci.yml
+```
+
+| Variable | Default | The GitHub input it mirrors |
+|---|---|---|
+| `REVIEWS` | `code,vulnerability` | `reviews` |
+| `REVIEW_FAIL_ON` | `high` | `fail-on` |
+| `REVIEW_SCOPE` | `changed` | `scope` |
+| `REVIEW_SEMGREP_CONFIG` | `p/ci` | `semgrep-config` |
+| `REVIEW_EXTRA_SARIF` | — | `extra-sarif` |
+| `REVIEW_TOKEN` | — | `pr-comment` — set it and the report is posted as one self-updating MR note |
+| `REVIEW_SEMGREP_IMAGE`, `REVIEW_GITLEAKS_IMAGE` | pinned tags | `semgrep-version`, `gitleaks-version` |
+| `REVIEW_TRIVY_IMAGE`, `REVIEW_COMMITLINT_VERSION` | `latest` | `trivy-version`, `commitlint-version` |
+| `REVIEW_NODE_IMAGE` | `node:22` | — the commit-message and report jobs; needs node, git, bash and curl, so not `-slim` |
+| `REVIEW_REPORT_DIR` | `review-report` | `report-dir` output — where the report and each SARIF land, and the artifact path |
+| `REVIEW_REPO`, `REVIEW_REF` | this repo at `v1` | the action's own `uses:` ref — the report job fetches `report.mjs` from there, so keep it equal to the ref you included. A branch, tag or commit sha; point `REVIEW_REPO` at a mirror if the runner cannot reach GitHub |
+
+GitLab has no Job Summary, so the report is the **job log** of `review:report`
+plus its artifact `review-report/`, holding the same files as the GitHub one.
+`REVIEW_TOKEN` wants a project access token with `api` scope; without it no
+note is posted and nothing fails over it. Give that token the **Reporter**
+role, enough to write a note: `api` is a broad scope, and anyone who can push a
+branch can change `.gitlab-ci.yml` there and read the variable. Masked, not
+protected — a protected variable never reaches an MR branch, so no note would
+ever be posted.
+
+Differences from the Actions lane:
+
+- One job per scanner (`review:code`, `review:trivy`, `review:gitleaks`,
+  `review:commit-message`) in `test`, and `review:report` in `test` too,
+  after them through `needs`. It still runs when a scanner died, and a failed
+  gate holds back every later stage, deploy included.
+- Except a job with its own `needs:`, which waits for those jobs and no
+  stage. A deploy like that has to list `review:report` in its `needs` to be
+  held back.
+- `REVIEW_EXTRA_SARIF` names files in the repository or in an artifact of
+  your own lint job. `review:report` only takes artifacts from its `needs`, so
+  add that job to them — overriding `needs` replaces the list, so repeat ours:
+
+  ```yaml
+  review:report:
+    needs:
+      - { job: "review:code", optional: true }
+      - { job: "review:trivy", optional: true }
+      - { job: "review:gitleaks", optional: true }
+      - { job: "review:commit-message", optional: true }
+      # optional: a missing lint job fails the report ("matched no file"),
+      # not the creation of the whole pipeline.
+      - { job: lint, optional: true }   # writes lint.sarif as an artifact
+  ```
+- `GIT_DEPTH: 0` is set for you on the jobs that need the full history.
 
 ## Available reviews
 
@@ -264,6 +345,9 @@ run page to see it. That one needs `pull-requests: write` in the workflow's
 `permissions`. A fork's token never has it, and a missing permission is reported
 as a warning — posting a comment must not decide whether a review passes.
 
+On GitLab the report is the job log and the artifact instead, and the MR note
+takes `REVIEW_TOKEN` — see [GitLab CI](#gitlab-ci).
+
 ```markdown
 ## Review Report
 
@@ -375,12 +459,14 @@ code. CI stays the source of truth.
 If the tool already writes SARIF and you can run it yourself, use
 [`extra-sarif`](#coding-standard) instead — nothing here needs to change.
 
-To make it a first-class review with its own severity bands, two places, and
-only two:
+To make it a first-class review with its own severity bands:
 
-1. Add a step in [`action.yml`](action.yml) that writes SARIF into `$REPORT_DIR`,
-   plus its filename in `expect` in the validation step.
-2. If the tool does not fill in `security-severity`, add one entry to
+1. Add its filename to `expected_reports` in
+   [`scripts/steps.sh`](scripts/steps.sh) — both lanes read that one list.
+2. Add a step in [`action.yml`](action.yml) and a job in
+   [`presets/gitlab-ci.yml`](presets/gitlab-ci.yml) that write that SARIF into
+   the report directory.
+3. If the tool does not fill in `security-severity`, add one entry to
    `TOOL_FALLBACK` in [`scripts/report.mjs`](scripts/report.mjs).
 
 A tool that already emits SARIF with `security-severity` needs no `report.mjs`
@@ -388,11 +474,12 @@ change at all.
 
 ## Development
 
-Four checks, and CI runs all four:
+Five checks, and CI runs all five:
 
 ```sh
 node scripts/report.test.mjs         # the report: bands, gate, scoping, sections
 node scripts/jscpd-to-sarif.test.mjs # the duplication converter
+node scripts/gitlab-ci.test.mjs      # the GitLab template: variables, jobs, versions, lane parity
 bash scripts/steps.test.sh           # the shell that decides things
 shellcheck scripts/*.sh
 ```
@@ -400,6 +487,11 @@ shellcheck scripts/*.sh
 Needs Node ≥ 18.3 (`util.parseArgs`). GitHub runners already satisfy that with
 no setup step, and `shellcheck` is preinstalled there — locally, if you have not
 installed it, `npx --yes shellcheck scripts/*.sh` needs nothing.
+
+Nothing here can run a GitLab pipeline, so `presets/gitlab-ci.yml` is covered
+by `gitlab-ci.test.mjs` — variables, job structure, that both lanes write
+the same SARIF and pin the same Semgrep and Gitleaks — plus the `steps.sh` it shares with the action. Its scanner
+commands themselves are only proven on GitLab.
 
 `.github/workflows/self-test.yml` runs that self-check, then uses
 `examples/fixtures/` to prove each scanner really finds something — and that the

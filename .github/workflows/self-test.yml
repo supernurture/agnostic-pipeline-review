@@ -27,6 +27,7 @@ jobs:
       - run: node scripts/report.test.mjs
       - run: node scripts/jscpd-to-sarif.test.mjs
       - run: bash scripts/steps.test.sh
+      - run: node scripts/gitlab-ci.test.mjs
       # The extracted shell is where the bugs have been, so it gets a static
       # pass on top of its own tests.
       - run: shellcheck scripts/*.sh

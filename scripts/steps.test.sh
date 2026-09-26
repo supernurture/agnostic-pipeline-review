@@ -97,6 +97,22 @@ SCOPE=changed BASE=HEAD HEAD=HEAD changed_lines "$out_file"
 check "an empty diff fails open" "1" "$?"
 check "leaving no empty list behind" "no" "$(exists "$out_file")"
 
+# --- check_inputs ---
+REVIEWS=code SCOPE=changed check_inputs 2>/dev/null
+check "valid inputs pass" "0" "$?"
+REVIEWS=" , " SCOPE=all check_inputs 2>/dev/null
+check "only separators is no review" "1" "$?"
+REVIEWS=code SCOPE=al check_inputs 2>/dev/null
+check "a scope typo fails" "1" "$?"
+
+# --- expected_reports ---
+check "every review" "semgrep.sarif,trivy.sarif,gitleaks.sarif" \
+  "$(REVIEWS="code,vulnerability,commit-message" expected_reports)"
+# commit-message writes no SARIF, so on its own it expects nothing.
+check "commit-message alone" "" "$(REVIEWS=commit-message expected_reports)"
+out="$(REVIEWS="code,typo" expected_reports 2>/dev/null)"
+check "an unknown review fails" "1" "$?"
+
 # --- collect_extra_sarif ---
 src="$work/src"
 mkdir -p "$src/one" "$src/two"
