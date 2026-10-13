@@ -34,8 +34,8 @@ jobs:
 Project A writes `code,vulnerability`. Project B writes `commit-message`. No
 other file has to change.
 
-Needs a **Linux runner** (`ubuntu-latest`): the action uses `pipx`, `tar` and
-`sha256sum`, and downloads the Linux build of Gitleaks.
+Needs a **Linux runner** (`ubuntu-latest`, x64 or arm64): the action uses
+`pipx`, `tar` and `sha256sum`, and downloads the Linux build of Gitleaks.
 
 Set `timeout-minutes` on the job. A composite action cannot give its own steps
 a timeout, and every scanner here installs itself over the network — without one
@@ -95,8 +95,8 @@ include:
 | `REVIEW_SEMGREP_CONFIG` | `p/ci` | `semgrep-config` |
 | `REVIEW_EXTRA_SARIF` | — | `extra-sarif` |
 | `REVIEW_TOKEN` | — | `pr-comment` — set it and the report is posted as one self-updating MR note |
-| `REVIEW_SEMGREP_IMAGE`, `REVIEW_GITLEAKS_IMAGE` | pinned tags | `semgrep-version`, `gitleaks-version` |
-| `REVIEW_TRIVY_IMAGE`, `REVIEW_COMMITLINT_VERSION` | `latest` | `trivy-version`, `commitlint-version` |
+| `REVIEW_SEMGREP_IMAGE`, `REVIEW_GITLEAKS_IMAGE`, `REVIEW_TRIVY_IMAGE` | pinned tags | `semgrep-version`, `gitleaks-version`, `trivy-version` |
+| `REVIEW_COMMITLINT_VERSION` | `latest` | `commitlint-version` |
 | `REVIEW_NODE_IMAGE` | `node:22` | — the commit-message and report jobs; needs node, git, bash and curl, so not `-slim` |
 | `REVIEW_REPORT_DIR` | `review-report` | `report-dir` output — where the report and each SARIF land, and the artifact path |
 | `REVIEW_REPO`, `REVIEW_REF` | this repo at `v1` | the action's own `uses:` ref — the report job fetches `report.mjs` from there, so keep it equal to the ref you included. A branch, tag or commit sha; point `REVIEW_REPO` at a mirror if the runner cannot reach GitHub |
@@ -223,7 +223,7 @@ knows its linter.
 | `semgrep-config` | `p/ci` | Semgrep ruleset, see [semgrep.dev/r](https://semgrep.dev/r) |
 | `semgrep-version` | `1.176.0` | Engine version. The rules stay fresh — `p/ci` is pulled from the registry at run time |
 | `gitleaks-version` | `8.30.1` | Version of the binary that gets downloaded (checksum verified) |
-| `trivy-version` | `latest` | Trivy engine — see [Versions](#versions) |
+| `trivy-version` | `v0.75.0` | Engine version. The CVE database stays fresh — see [Versions](#versions) |
 | `commitlint-version` | `latest` | commitlint and `config-conventional`, pinned together |
 | `scope` | `changed` | `changed` gates only on lines the diff adds or edits, `all` on the whole tree — see [Scope](#scope) |
 | `extra-sarif` | — | SARIF from your own linters — see [Coding standard](#coding-standard) |
@@ -260,7 +260,11 @@ same way.
 
 Two deliberate exceptions: a finding with no location at all is always kept —
 nothing places it, so nothing proves it pre-existing — and a finding that names
-a file but no line falls back to matching the file.
+a file but no line falls back to matching the file. **Line 1 counts as no
+line**: SARIF consumers demand one, so Trivy writes 1 for a dependency it cannot
+place in the manifest. Where Trivy tracks no lines for an ecosystem, touching
+that manifest therefore brings its whole CVE backlog along — the price of a
+newly added CVE never slipping past the gate.
 
 It needs both ends of the range in the local clone, which is what
 `fetch-depth: 0` buys. A pull request supplies the range from its base; a push
@@ -277,12 +281,14 @@ run.
 Engines are pinned, their data is not, and that split is deliberate: a stale
 ruleset or CVE database is more dangerous than a stale binary.
 
-- `semgrep-version` and `gitleaks-version` pin a binary. The Semgrep rules
-  (`p/ci`) are still pulled from the registry on every run.
-- `trivy-version` and `commitlint-version` default to `latest`, because for
-  those two the version *is* the freshness — the CVE database, and the rules
-  commitlint applies by default. Pin them to reproduce an old run or to roll
-  back a bad upstream release.
+- `semgrep-version`, `gitleaks-version` and `trivy-version` pin a binary. The
+  Semgrep rules (`p/ci`) and Trivy's CVE database are still pulled on every
+  run, so a pinned engine costs no freshness.
+- `commitlint-version` defaults to `latest`, because there the version *is* the
+  freshness — the rules commitlint applies by default. Pin it to reproduce an
+  old run or to roll back a bad upstream release.
+- The two actions this one calls are pinned to a commit sha rather than a tag:
+  they run inside your job, and a tag can be moved.
 
 So the same commit can produce different findings a week later. That is the
 point rather than a bug, but it does mean a green PR can turn red without
@@ -321,8 +327,8 @@ default), **`reviews: code` on its own often blocks nothing** — it reports
 without gating.
 
 You can see it in this repo's own CI: with `reviews: code` and `fail-on: high`
-the pipeline **passes** even though `examples/fixtures/` contains SQL injection,
-`shell=True`, and `eval()` — not one of them is rated High.
+the pipeline **passes** even though `examples/fixtures/risky.py` runs Flask's
+debugger on every interface and hashes with MD5 — not one of them is rated High.
 
 Pick whichever you prefer:
 
@@ -490,12 +496,14 @@ installed it, `npx --yes shellcheck scripts/*.sh` needs nothing.
 
 Nothing here can run a GitLab pipeline, so `presets/gitlab-ci.yml` is covered
 by `gitlab-ci.test.mjs` — variables, job structure, that both lanes write
-the same SARIF and pin the same Semgrep and Gitleaks — plus the `steps.sh` it shares with the action. Its scanner
+the same SARIF and pin the same Semgrep, Gitleaks and Trivy — plus the `steps.sh` it shares with the action. Its scanner
 commands themselves are only proven on GitLab.
 
 `.github/workflows/self-test.yml` runs that self-check, then uses
 `examples/fixtures/` to prove each scanner really finds something — and that the
-findings disappear when its review is unplugged.
+findings disappear when its review is unplugged. One step replays those real
+findings against a diff in which every file is new, so `scope: changed` is
+checked against the paths the scanners actually write.
 
 `.github/workflows/review.yml` is this repository reviewing itself with its own
 action, the way a consumer would. self-test.yml proves the action works; it

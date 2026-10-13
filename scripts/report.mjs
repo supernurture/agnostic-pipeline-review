@@ -196,9 +196,11 @@ export function scopeTo(findings, changed) {
     const at = /:(\d+)$/.exec(f.location);
     const spans = changed.get(at ? f.location.slice(0, -at[0].length) : f.location);
     if (!spans) return false;
-    // A location that names no line falls back to the file.
-    if (!at) return true;
-    const line = Number(at[1]);
+    // A location that names no line falls back to the file. Line 1 counts as
+    // none: SARIF consumers demand a line, so Trivy writes 1 for a dependency
+    // it cannot place, and a newly added CVE would otherwise never gate.
+    const line = at ? Number(at[1]) : 1;
+    if (line === 1) return true;
     return spans.some(([from, to]) => line >= from && line <= to);
   });
 }

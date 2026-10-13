@@ -24,9 +24,9 @@ variables:
   # the *-version inputs in action.yml; gitlab-ci.test.mjs fails if they drift.
   REVIEW_SEMGREP_IMAGE: semgrep/semgrep:1.176.0
   REVIEW_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1
-  # latest on purpose: for these two the version is the freshness — the CVE
-  # database and the rule defaults.
-  REVIEW_TRIVY_IMAGE: aquasec/trivy:latest
+  # Pinned too: Trivy downloads its CVE database at run time.
+  REVIEW_TRIVY_IMAGE: aquasec/trivy:0.75.0
+  # latest on purpose: here the version is the freshness — the rule defaults.
   REVIEW_COMMITLINT_VERSION: latest
   # The commit-message and report jobs need node, git and bash — not -slim.
   REVIEW_NODE_IMAGE: node:22

@@ -9,5 +9,5 @@ Do not fix them. The credentials here are fake and were never valid.
 | File | Triggers | Expected severity |
 |---|---|---|
 | `leaked_key.py` | Gitleaks | Critical |
-| `sqli.py` | Semgrep `p/ci` | High / Medium |
+| `risky.py` | Semgrep `p/ci` | Medium |
 | `requirements.txt` | Trivy | from the CVE's own CVSS score |

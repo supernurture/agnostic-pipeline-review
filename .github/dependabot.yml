@@ -6,11 +6,11 @@ updates:
     directory: /
     schedule:
       interval: monthly
-# Out of Dependabot's reach, bump by hand: the `semgrep-version` and
-# `gitleaks-version` inputs in action.yml, the matching image tags in
-# presets/gitlab-ci.yml, and the `rev:` pins in presets/pre-commit.yaml.
-# `trivy-version` and `commitlint-version` default to `latest`, so there is no
-# pin to go stale.
+# Out of Dependabot's reach, bump by hand: the `semgrep-version`,
+# `gitleaks-version` and `trivy-version` inputs in action.yml, the matching
+# image tags in presets/gitlab-ci.yml, and the `rev:` pins in
+# presets/pre-commit.yaml. `commitlint-version` defaults to `latest`, so there
+# is no pin to go stale.
 #
 # Dependabot rewrites .github/workflows/ and action.yml and nothing else, so
 # the same `uses:` lines in README.md and examples/ — the two copies new users

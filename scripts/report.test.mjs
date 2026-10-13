@@ -271,7 +271,8 @@ try {
         properties: { "security-severity": "7.5" },
         message: { text: "vulnerable dependency" },
         locations: [{
-          physicalLocation: { artifactLocation: { uri: "requirements.txt" }, region: { startLine: i + 1 } },
+          // From line 2: line 1 is how a scanner spells "no line", see below.
+          physicalLocation: { artifactLocation: { uri: "requirements.txt" }, region: { startLine: i + 2 } },
         }],
       })),
     }],
@@ -283,6 +284,32 @@ try {
   assert.match(r.stdout, /\| \*\*Total\*\* \| \*\*1\*\* \|/, "one line touched, one CVE reported");
   assert.match(r.stdout, /Not listed: 39 finding/);
   rmSync(manifest, { recursive: true, force: true });
+
+  // Trivy writes line 1 for a dependency it cannot place in the manifest. By
+  // line that CVE would only gate when line 1 itself changed — never, for a
+  // dependency added further down.
+  const unplaced = mkdtempSync(join(tmpdir(), "apr-unplaced-"));
+  writeFileSync(join(unplaced, "trivy.sarif"), JSON.stringify({
+    runs: [{
+      tool: { driver: { name: "Trivy" } },
+      results: [{
+        ruleId: "CVE-2024-1",
+        properties: { "security-severity": "9.8" },
+        message: { text: "vulnerable dependency" },
+        locations: [{
+          physicalLocation: { artifactLocation: { uri: "pom.xml" }, region: { startLine: 1, endLine: 1 } },
+        }],
+      }],
+    }],
+  }));
+  const unplacedChanged = join(unplaced, "changed.txt");
+  writeFileSync(unplacedChanged, "pom.xml\t30\t34\n");
+  assert.equal(run([unplaced, "--fail-on", "critical", "--changed", unplacedChanged]).code, 1,
+    "a finding on line 1 falls back to the file");
+  writeFileSync(unplacedChanged, "other.xml\t1\t9\n");
+  assert.equal(run([unplaced, "--fail-on", "critical", "--changed", unplacedChanged]).code, 0,
+    "but not to a file the change never touched");
+  rmSync(unplaced, { recursive: true, force: true });
 
   // An empty or missing list must fail open, not hide every finding.
   writeFileSync(changedFile, "\n  \n");
