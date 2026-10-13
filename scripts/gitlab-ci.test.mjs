@@ -57,7 +57,7 @@ for (const name of expected) {
 }
 
 // --- pinned versions match ---
-// Dependabot reaches neither file's pin, so this is the only thing keeping them in step.
+// Renovate bumps both files in one PR; this is what fails if that ever stops being true.
 for (const [input, variable] of [["semgrep-version", "REVIEW_SEMGREP_IMAGE"],
                                  ["gitleaks-version", "REVIEW_GITLEAKS_IMAGE"],
                                  ["trivy-version", "REVIEW_TRIVY_IMAGE"]]) {

@@ -1,0 +1,68 @@
+// Renovate, not Dependabot: Dependabot reads `uses:` lines and nothing else, so
+// the scanner versions — an input default, an image tag, a pre-commit rev —
+// only ever moved when someone remembered to move them.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // :semanticCommits because review.yml holds every PR to commitlint.
+  extends: ["config:recommended", "schedule:monthly", ":semanticCommits"],
+  // A release has to survive a week in the open before it is proposed here:
+  // these tools run inside the consumer's job, with the consumer's token.
+  minimumReleaseAge: "7 days",
+  // Broken on purpose. Bumping PyYAML would fix the CVE that baits Trivy.
+  ignorePaths: ["examples/fixtures/**"],
+  // The `uses:` lines in action.yml and the workflows need nothing here, the
+  // built-in manager finds them. The same lines in README.md and examples/ —
+  // the two copies new users start from — it does not: grep and update them
+  // when a PR lands.
+  //
+  // One entry per tool, naming every file its version lives in, so the copies
+  // move in one PR. gitlab-ci.test.mjs fails if action.yml and the GitLab
+  // template ever part ways.
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["action.yml", "presets/gitlab-ci.yml", "presets/pre-commit.yaml"],
+      matchStrings: [
+        'semgrep-version:[\\s\\S]*?default: "(?<currentValue>[^"]+)"',
+        "REVIEW_SEMGREP_IMAGE: semgrep/semgrep:(?<currentValue>\\S+)",
+        "repo: https://github\\.com/semgrep/pre-commit\\s+rev: v(?<currentValue>\\S+)",
+      ],
+      depNameTemplate: "semgrep/semgrep",
+      datasourceTemplate: "github-releases",
+      // The files spell it without the v, the release tag with it.
+      extractVersionTemplate: "^v(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["action.yml", "presets/gitlab-ci.yml", "presets/pre-commit.yaml"],
+      matchStrings: [
+        'gitleaks-version:[\\s\\S]*?default: "(?<currentValue>[^"]+)"',
+        "REVIEW_GITLEAKS_IMAGE: zricethezav/gitleaks:v(?<currentValue>\\S+)",
+        "repo: https://github\\.com/gitleaks/gitleaks\\s+rev: v(?<currentValue>\\S+)",
+      ],
+      depNameTemplate: "gitleaks/gitleaks",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["action.yml", "presets/gitlab-ci.yml"],
+      matchStrings: [
+        'trivy-version:[\\s\\S]*?default: "v(?<currentValue>[^"]+)"',
+        "REVIEW_TRIVY_IMAGE: aquasec/trivy:(?<currentValue>\\S+)",
+      ],
+      depNameTemplate: "aquasecurity/trivy",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v(?<version>.+)$",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["presets/pre-commit.yaml"],
+      matchStrings: [
+        "repo: https://github\\.com/alessandrojcm/commitlint-pre-commit-hook\\s+rev: (?<currentValue>\\S+)",
+      ],
+      depNameTemplate: "alessandrojcm/commitlint-pre-commit-hook",
+      datasourceTemplate: "github-tags",
+    },
+  ],
+}
