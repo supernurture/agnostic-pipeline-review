@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
 
-# Every push fires 6 jobs; do not let stale runs pile up.
+# Every push fires 8 jobs; do not let stale runs pile up.
 concurrency:
   group: self-test-${{ github.ref }}
   cancel-in-progress: true
@@ -50,7 +50,7 @@ jobs:
           {"runs":[{"tool":{"driver":{"name":"Ruff"}},"results":[{
             "ruleId":"E501","level":"error","message":{"text":"Line too long"},
             "locations":[{"physicalLocation":{
-              "artifactLocation":{"uri":"examples/fixtures/sqli.py"},
+              "artifactLocation":{"uri":"examples/fixtures/risky.py"},
               "region":{"startLine":8}}}]}]}]}
           JSON
 
@@ -94,8 +94,8 @@ jobs:
           exit 1
 
   integration:
-    name: ${{ matrix.reviews }} @ ${{ matrix.fail-on }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.reviews }} @ ${{ matrix.fail-on }}${{ matrix.os && ' (arm64)' || '' }}
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     # Installs and runs three real scanners, so it gets the longest leash.
     timeout-minutes: 20
     strategy:
@@ -125,6 +125,11 @@ jobs:
           - reviews: bogus
             fail-on: high
             expect: fail
+          # arm64: every scanner is a per-architecture download.
+          - reviews: code,vulnerability
+            fail-on: info
+            expect: fail
+            os: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
         with:
@@ -150,10 +155,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Number of results inside a SARIF file.
+          # Number of results a SARIF file places in the fixtures. Only those:
+          # Semgrep also flags this repo's own workflows, which kept this
+          # assert green after the registry rules had stopped matching the
+          # fixture.
           results() {
             node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
-              console.log((d.runs||[]).reduce((a,r)=>a+(r.results||[]).length,0));' "$1"
+              const at=(x)=>x.locations?.[0]?.physicalLocation?.artifactLocation?.uri??"";
+              console.log((d.runs||[]).flatMap((r)=>r.results||[]).filter((x)=>at(x).includes("examples/fixtures/")).length);' "$1"
           }
           # Content checks run first so a fixture that stopped triggering a
           # scanner is not reported as a broken gate.
@@ -197,6 +206,39 @@ jobs:
             echo "::error::'$REVIEWS' @ fail-on=$FAIL_ON should be $EXPECTED, got $got"
             exit 1
           fi
+
+      # Every row runs scope: all, so this is the only place the default scope
+      # meets what the scanners really write. scopeTo matches paths exactly: a
+      # uri spelled differently from git's drops the finding out of the gate.
+      - name: Every finding survives scope changed
+        if: matrix.reviews == 'code,vulnerability,commit-message'
+        env:
+          DIR: ${{ steps.review.outputs.report-dir }}
+          GIT_AUTHOR_NAME: self-test
+          GIT_AUTHOR_EMAIL: self-test@example.invalid
+          GIT_COMMITTER_NAME: self-test
+          GIT_COMMITTER_EMAIL: self-test@example.invalid
+        run: |
+          set -euo pipefail
+          . scripts/steps.sh
+          # A range in which every file is new: an empty base, and this very
+          # tree on top of it. Nothing is checked out or pushed.
+          base="$(git commit-tree -m base "$(git mktree < /dev/null)")"
+          head="$(git commit-tree -m head -p "$base" 'HEAD^{tree}')"
+          SCOPE=changed BASE="$base" HEAD="$head" changed_lines "$RUNNER_TEMP/changed.txt"
+          # Not tied to the fixtures: which of them a registry ruleset still
+          # flags is not this repo's to decide.
+          # shellcheck disable=SC2016  # the ${} below is JavaScript's
+          node --input-type=module -e '
+            import { collect, readChanged, scopeTo } from "./scripts/report.mjs";
+            const [dir, changed] = process.argv.slice(1);
+            const all = collect(dir).findings;
+            const kept = new Set(scopeTo(all, readChanged(changed)));
+            const lost = all.filter((f) => !kept.has(f));
+            for (const f of lost) console.log(`::error::scoped out: ${f.tool} at ${f.location}`);
+            console.log(`${all.length} findings, ${lost.length} scoped out`);
+            process.exitCode = lost.length || !all.length ? 1 : 0;
+          ' "$DIR" "$RUNNER_TEMP/changed.txt"
 
       # Not runnable locally, so a failed assert has to leave the raw SARIF
       # downloadable. After Assert: the review step is continue-on-error, so
