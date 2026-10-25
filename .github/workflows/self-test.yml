@@ -252,3 +252,19 @@ jobs:
           # ignore here, warn inside action.yml: this only runs on a failed job,
           # where the review may have exited before the directory existed.
           if-no-files-found: ignore
+
+  # The one check a ruleset requires: rows can be added or renamed without
+  # touching it. always(), because a job skipped after a failed need counts as
+  # passed; anything but success in every need, cancelled included, is red.
+  self-test:
+    name: self-test
+    if: always()
+    needs: [unit, extra-sarif, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A job did not pass
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "::error::unit, extra-sarif, integration: ${{ join(needs.*.result, ', ') }}"
+          exit 1
